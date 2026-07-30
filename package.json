@@ -1,0 +1,54 @@
+{
+  "name": "unlocalhost-cli",
+  "version": "0.1.0-alpha.0",
+  "description": "Develop on your own machine from anywhere, without deploying your local environment.",
+  "type": "module",
+  "bin": {
+    "unlocalhost": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "GUIDE.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "check": "npm run build && npm test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "localhost",
+    "remote-development",
+    "docker-compose",
+    "caddy",
+    "cloudflare-tunnel",
+    "developer-tools",
+    "cli"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/monteduro/unlocalhost.git"
+  },
+  "bugs": {
+    "url": "https://github.com/monteduro/unlocalhost/issues"
+  },
+  "homepage": "https://github.com/monteduro/unlocalhost#readme",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.0",
+    "smol-toml": "^1.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}

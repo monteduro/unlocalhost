@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">unlocalhost mark</title>
+  <desc id="desc">A terminal window with an arrow leaving its top-right corner.</desc>
+  <rect width="64" height="64" rx="15" fill="#0b0d0c"/>
+  <path d="M43 12H17a7 7 0 0 0-7 7v28a7 7 0 0 0 7 7h28a7 7 0 0 0 7-7V31" fill="none" stroke="#f3f4ed" stroke-width="4" stroke-linecap="round"/>
+  <path d="m37 27 16-16m-10 0h10v10" fill="none" stroke="#b8ff57" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m19 29 6 5-6 5m11 0h8" fill="none" stroke="#7aa7ff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

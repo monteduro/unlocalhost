@@ -1,0 +1,13 @@
+services:
+  frontend:
+    image: example.invalid/frontend
+    ports:
+      - "3000"
+  api:
+    image: example.invalid/api
+    expose:
+      - "4000"
+  database:
+    image: example.invalid/database
+    ports:
+      - "5432"
