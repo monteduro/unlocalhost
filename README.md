@@ -72,52 +72,33 @@ npm link
 Missing optional dependencies fail with platform-specific installation
 instructions. Run `unlocalhost doctor` at any time.
 
-## First run
+## Quick start with a coding agent
 
-```sh
-unlocalhost init
-unlocalhost proxy install
-caddy trust
-unlocalhost doctor
-```
-
-Register and start a Compose project:
+Enter the project you want to work on:
 
 ```sh
 cd ~/Sites/my-app
-unlocalhost --yes add "$PWD" --slug my-app --services web:80
-unlocalhost up my-app
-unlocalhost url my-app
 ```
 
-Configure remote access once for the entire machine:
+Then paste this prompt into your coding agent:
 
-```sh
-cloudflared tunnel login
-unlocalhost tunnel init --domain dev.example.com --name unlocalhost
-unlocalhost tunnel install
-unlocalhost url my-app --public
+```text
+Use the installed unlocalhost CLI to configure this project for local HTTPS and
+remote development. Read the project instructions, inspect the repository and
+any Compose configuration, and do not modify project files unless the framework
+strictly requires it.
+
+Run unlocalhost doctor first. Initialize the machine state, Caddy proxy, and
+certificate trust only if needed. Detect and register the project's HTTP
+endpoints, including its app, API, admin, or Vite server when present. Do not
+register databases or caches. Reuse the existing machine-wide Cloudflare tunnel;
+if remote access is not configured yet, ask me for the domain before creating it.
+
+Start the project, verify it with unlocalhost --json status, and return every
+local and public URL. Pause only when I must approve a password or browser login.
 ```
 
-The tunnel uses one wildcard DNS record. Adding another project does not create
-another tunnel or touch DNS again.
-
-## Agent-ready workflow
-
-An agent entering a project can inspect its Compose services and then run:
-
-```sh
-unlocalhost doctor
-unlocalhost --json tunnel status
-unlocalhost --yes add "$PWD" --slug <slug> \
-  --services <http-service>:<container-port>
-unlocalhost up <slug>
-unlocalhost --json status <slug>
-unlocalhost url <slug> --public
-```
-
-Only HTTP services should become endpoints. Databases and caches remain inside
-their Compose networks. unlocalhost never patches the registered repository.
+For manual setup and the complete agent procedure, see [GUIDE.md](GUIDE.md).
 
 ## What it is not
 

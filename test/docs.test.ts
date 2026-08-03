@@ -9,6 +9,8 @@ test("README states the remote-development purpose and links the full guide", as
   assert.match(readme, /Nothing is deployed\./);
   assert.match(readme, /one optional wildcard tunnel serve every project/);
   assert.match(readme, /npm install --global unlocalhost-cli@alpha/);
+  assert.match(readme, /Then paste this prompt into your coding agent/);
+  assert.match(readme, /Run unlocalhost doctor first/);
   assert.match(readme, /\[GUIDE\.md\]\(GUIDE\.md\)/);
   assert.ok(readme.split("\n").length < 150, "README should remain a concise entry point");
 });

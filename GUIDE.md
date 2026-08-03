@@ -516,6 +516,26 @@ Additional development commands not declared by Compose, such as an interactive
 An agent asked to “use unlocalhost and expose this project remotely” should follow
 this order.
 
+### Copy-paste prompt
+
+From the project directory, give a coding agent this prompt:
+
+```text
+Use the installed unlocalhost CLI to configure this project for local HTTPS and
+remote development. Read the project instructions, inspect the repository and
+any Compose configuration, and do not modify project files unless the framework
+strictly requires it.
+
+Run unlocalhost doctor first. Initialize the machine state, Caddy proxy, and
+certificate trust only if needed. Detect and register the project's HTTP
+endpoints, including its app, API, admin, or Vite server when present. Do not
+register databases or caches. Reuse the existing machine-wide Cloudflare tunnel;
+if remote access is not configured yet, ask me for the domain before creating it.
+
+Start the project, verify it with unlocalhost --json status, and return every
+local and public URL. Pause only when I must approve a password or browser login.
+```
+
 ### 1. Inspect without mutating
 
 - Read project instructions such as `AGENTS.md`.
