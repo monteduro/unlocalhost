@@ -93,7 +93,17 @@ Install Docker Desktop only when Compose projects are used. On Linux and
 Windows, run `unlocalhost doctor`; missing dependency errors include the appropriate
 installation instructions and official links.
 
-Build and expose the CLI from this repository:
+Choose one installation method. For normal use, install the published alpha:
+
+```sh
+npm install --global unlocalhost-cli@alpha
+```
+
+That command installs the `unlocalhost` executable. Continue to the first local
+setup below; do not also run the source-build commands.
+
+Only contributors developing unlocalhost itself should clone this repository
+and use this alternative:
 
 ```sh
 npm install
@@ -104,12 +114,6 @@ unlocalhost --help
 
 Use `npm run dev -- <arguments>` to run the TypeScript entry point without a
 global link.
-
-Install the published alpha:
-
-```sh
-npm install --global unlocalhost-cli@alpha
-```
 
 The npm package is named `unlocalhost-cli`; the installed command and product
 name are both `unlocalhost`. Use the explicit `@alpha` tag until a stable

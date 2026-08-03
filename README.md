@@ -50,17 +50,21 @@ Requirements:
 - Docker Compose 2.24.4 or newer only for Compose projects.
 - cloudflared only for remote access.
 
-From npm (current alpha channel):
+For normal use, install the current alpha from npm:
 
 ```sh
 npm install --global unlocalhost-cli@alpha
 ```
 
+That command installs the `unlocalhost` executable. Do not run the source-build
+commands below as well; continue directly to **First run**.
+
 Use the explicit `@alpha` tag while unlocalhost is prerelease software. npm
 requires every package to retain a `latest` tag, so the first alpha may also be
 reachable without the tag; `@alpha` is the supported installation channel.
 
-From this repository:
+Only contributors developing unlocalhost itself should clone this repository
+and use this alternative instead of the global npm installation:
 
 ```sh
 npm install
