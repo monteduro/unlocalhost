@@ -87,6 +87,7 @@ export interface AddProjectOptions {
   containerPort?: number;
   name?: string;
   run?: string[];
+  public?: boolean;
 }
 
 export interface AddEndpointOptions {
@@ -248,6 +249,7 @@ async function addProjectUnlocked(
     path: projectPath,
     slug,
     enabled: true,
+    public_enabled: options.public ?? true,
     endpoints: [],
     upstream: {
       mode: "host_port",
@@ -313,9 +315,6 @@ async function addEndpointUnlocked(
   }
   if (options.service && !project.compose_file) {
     throw new UnlocalhostError("--service requires a project registered with --compose");
-  }
-  if (project.compose_file && options.run) {
-    throw new UnlocalhostError("--run cannot be used for a Compose-managed project");
   }
   if (
     options.service &&
@@ -416,7 +415,7 @@ export async function removeEndpoint(
     throw new UnlocalhostError(`Endpoint "${id}" is not registered in project "${project.id}"`);
   }
   const resolved = getEndpoint(project, id)!;
-  if (!project.compose_file) await stopEndpointRunner(home, project, resolved);
+  await stopEndpointRunner(home, project, resolved);
   const [removed] = project.endpoints.splice(index, 1);
   if (removed?.compose_service) await updateComposeOverride(home, project);
   await saveProject(home, project);
@@ -433,9 +432,9 @@ export async function setEndpointCommand(
     throw new UnlocalhostError("Run command cannot be empty");
   }
   const project = await getProject(home, projectId);
-  if (project.compose_file) {
+  if (project.compose_file && endpointId === "web") {
     throw new UnlocalhostError(
-      `Project "${project.id}" is Compose-managed; its lifecycle comes from Compose`,
+      `Project "${project.id}" uses Compose for its primary endpoint; save the command on a secondary endpoint`,
     );
   }
   const id = validateSlug(endpointId);
@@ -453,11 +452,24 @@ export async function setEndpointCommand(
 
 export async function removeProject(home: string, id: string): Promise<ProjectConfig> {
   const project = await getProject(home, id);
-  if (!project.compose_file) await stopProjectRunners(home, project);
+  await stopProjectRunners(home, project);
   await fs.unlink(projectFile(home, id));
   if (project.compose_override) {
     assertInside(pathsFor(home).overrides, project.compose_override, "Compose override");
     await fs.rm(project.compose_override, { force: true });
   }
   return project;
+}
+
+export async function setProjectPublicEnabled(
+  home: string,
+  id: string,
+  enabled: boolean,
+): Promise<ProjectConfig> {
+  return await withRegistryLock(home, async () => {
+    const project = await getProject(home, id);
+    project.public_enabled = enabled;
+    await saveProject(home, project);
+    return project;
+  });
 }

@@ -5,7 +5,7 @@
 Build a **CLI-first** tool to run **many HTTP projects in parallel** on one machine (typically a Mac always-on host), with:
 
 - **One local reverse proxy (Caddy)** terminating **HTTPS** and routing by hostname
-- **Optional one Cloudflare Tunnel** (always-on), wildcard DNS only
+- **Optional one Cloudflare Tunnel per machine** (always-on), with exact DNS per independently addressable public endpoint
 - **Zero modifications inside team project repos** (no committed config, no compose patches in the project tree)
 - **Agent-friendly** commands (non-interactive defaults, stable output, optional `--json`)
 
@@ -19,9 +19,11 @@ This replaces the mental model of “one IP per project + `/etc/hosts`” with �
 ## Non-goals (v1)
 
 - Web UI / dashboard (maybe later; same library as CLI)
-- Framework-specific logic (Laravel, Next, etc.) — **fully agnostic**
+- Framework-specific application mutation (Laravel, Next, etc.). The core is
+  fully agnostic; lightweight dev-server detection may translate the universal
+  endpoint contract into commands or follow-up instructions.
 - Patching `/etc/hosts` or allocating `10.0.0.x` as the core design
-- Per-project Cloudflare tunnels or per-project DNS records
+- Per-project Cloudflare tunnels
 - Replacing Docker Compose features
 - Production PaaS / multi-tenant hosting
 - Coupling to T3 Code (may be used *by* agents, not built into T3)
@@ -41,7 +43,7 @@ Browser (local or remote)
         → project A upstream
         → project B upstream
     ↑
-cloudflared (optional, one named tunnel, wildcard DNS)
+cloudflared (optional, one machine-specific named tunnel, exact endpoint DNS)
 ```
 
 Local fallback when tunnel is down: still use Caddy on localhost (e.g. `https://name.localhost` or local hostnames), no Cloudflare required for Studio-only work.
@@ -51,8 +53,8 @@ Local fallback when tunnel is down: still use Caddy on localhost (e.g. `https://
 ## Design principles
 
 1. **Project repos stay clean** — all tool state under `~/.unlocalhost/` (configurable base dir).
-2. **One Caddy, one tunnel** — not one process per project.
-3. **Wildcard DNS forever** — e.g. `*.dev.example.com` → tunnel; adding a project never touches Cloudflare DNS again.
+2. **One Caddy and one tunnel per machine** — not one process per project.
+3. **Exact machine-qualified DNS** — e.g. `app-studio.example.com` → that machine's tunnel. A persistent human-selected machine alias keeps independent tunnel replica sets readable.
 4. **CLI is the product** — agents run the same commands as humans.
 5. **Docker Compose is optional** — a project can be “compose path + service” or “bare upstream URL/port”.
 6. **Do not rewrite team compose files** — if host publish ports are needed beyond what the team file exposes, use an **external** override file under `~/.unlocalhost/overrides/`, passed via `docker compose -f … -f …`, never written into the project repo.
@@ -96,10 +98,13 @@ caddy_http_port = 80                  # optional; prefer not fighting system
 caddy_https_port = 443                # or 8443 if no root
 # For local HTTPS without real DNS, use *.localhost (Caddy/local)
 local_domain_suffix = "localhost"     # names become <slug>.localhost
-# Public wildcard zone (Cloudflare)
-public_domain = "dev.stemonte.io"     # hostnames: <slug>.dev.stemonte.io
+# Public Cloudflare zone
+public_domain = "stemonte.io"         # hostnames: <slug>-<machine_alias>.stemonte.io
+machine_id = "host-009-a1b2c3"        # generated once and persisted
+machine_alias = "studio"               # selected once by the user
+dns_mode = "project"
 tunnel_enabled = true
-tunnel_name = "unlocalhost"
+tunnel_name = "unlocalhost-host-009-a1b2c3"
 # cloudflare api token path or env CLOUDFLARE_API_TOKEN
 ```
 
@@ -113,7 +118,7 @@ name = "dailygram"
 path = "/Users/…/Sites/dailygram"
 # Public and/or local hostnames (tool can derive both from slug)
 slug = "dailygram"
-# hostname_public = "dailygram.dev.stemonte.io"  # derived: <slug>.<public_domain>
+# hostname_public = "dailygram-studio.stemonte.io" # derived
 # hostname_local  = "dailygram.localhost"        # derived
 
 # How to start (optional)
@@ -146,21 +151,21 @@ Defer “auto join docker network + route to service name” to v2 if needed.
 - Generate Caddyfile from all **enabled/up** projects (or all registered — document behavior).
 - Each site: hostname(s) → `reverse_proxy host:port`.
 - Local HTTPS: `https://<slug>.localhost` (Caddy local CA / automatic HTTPS for localhost).
-- Public: `<slug>.<public_domain>` may only work when tunnel + CF DNS wildcard exist; Caddy still routes them when requests arrive (from tunnel).
+- Public: `<slug>-<machine_alias>.<public_domain>` works when the endpoint's exact CNAME and that machine's tunnel exist; Caddy routes the Host when it arrives from the tunnel.
 
 Regenerate + `caddy reload` on add/rm/up/down that changes routes.
 
 ### Cloudflare Tunnel
 
-- **One named tunnel**, config in `~/.unlocalhost/cloudflared/config.yml`.
-- Ingress: all traffic for `*.public_domain` (and maybe catch-all 404) → Caddy HTTP or HTTPS endpoint.
+- **One machine-specific named tunnel**, config in `~/.unlocalhost/cloudflared/config.yml`.
+- Ingress: tunnel traffic → Caddy HTTP on loopback; exact DNS records decide which machine receives each hostname.
 - Prefer pointing tunnel at Caddy’s **HTTP** listener on loopback if TLS is terminated at Cloudflare (orange cloud), **or** at HTTPS if you want end-to-end — document one choice. Simplest: CF terminates TLS, tunnel → `http://127.0.0.1:8080`, Caddy does Host routing on HTTP for that entrypoint **or** Caddy only HTTP on loopback for tunnel and HTTPS for local `.localhost`.  
   Clean approach:
   - Caddy `:8080` HTTP (Host routing) — used by cloudflared
   - Caddy `:8443` HTTPS — used by local browser with `.localhost` or local domain
   - Same route blocks for both
 
-- DNS: **only** wildcard `*.dev.example.com` CNAME to `<tunnel-id>.cfargotunnel.com` (proxied). Never per-app DNS in v1.
+- DNS: one proxied first-level CNAME per independently addressable public endpoint to that machine's `<tunnel-id>.cfargotunnel.com`. Vite is multiplexed through the app hostname. The machine suffix prevents cross-machine collisions and stays within Universal SSL coverage.
 - Install as user LaunchAgent (macOS) / systemd user unit (Linux) with restart.
 - “Tunnels die after a while” is solved by **service supervision**, not by more tunnels.
 
@@ -185,7 +190,7 @@ unlocalhost proxy install|uninstall|start|stop|status|reload   # Caddy service
 unlocalhost caddy rebuild                                      # regenerate Caddyfile + reload
 
 unlocalhost tunnel guide
-unlocalhost tunnel init          # create named tunnel if needed, write config, ensure wildcard DNS if token available
+unlocalhost tunnel init          # create this machine's tunnel and ensure registered endpoint DNS
 unlocalhost tunnel install|uninstall|start|stop|status
 unlocalhost tunnel open-dashboard   # optional convenience
 ```
@@ -203,24 +208,26 @@ Exit codes: 0 ok, non-zero failure; agents depend on this.
 
 ---
 
-## Cloudflare setup flow (wildcard-only)
+## Cloudflare setup flow (machine-specific project DNS)
 
 ### Documented manual path (`tunnel guide`)
 
 1. Domain on Cloudflare.
 2. Create API token (Account: Cloudflare Tunnel; Zone: DNS Edit) **or** use `cloudflared tunnel login`.
-3. `unlocalhost tunnel init`.
-4. Ensure wildcard DNS once.
+3. `unlocalhost tunnel init --domain <domain> --machine <alias>`; the wizard asks once and persists the alias.
+4. Ensure exact DNS for every independently addressable public endpoint; do not create a separate Vite record.
 5. `unlocalhost tunnel install` + `unlocalhost proxy install`.
 
 ### Automated path (`tunnel init`)
 
 Prefer wrapping:
 
-- `cloudflared tunnel create unlocalhost` (if missing)
+- `cloudflared tunnel create unlocalhost-<machine-id>` (if missing)
 - `cloudflared tunnel token` / credentials file in `~/.unlocalhost/cloudflared/`
-- DNS: Cloudflare API `PUT`/`POST` CNAME `*.dev` → `<id>.cfargotunnel.com` proxied  
-  **or** `cloudflared tunnel route dns` if it supports wildcard cleanly — verify and pick one.
+- DNS: Cloudflare API `PUT`/`POST` exact CNAME → `<id>.cfargotunnel.com` proxied
+  **or** `cloudflared tunnel route dns` with the exact hostname.
+- `rm` never attempts DNS deletion. It removes the Caddy route and prints every
+  exact hostname that the user must delete from the Cloudflare dashboard.
 
 If token missing: print exact guide + `open-dashboard` links; do not fake success.
 
@@ -253,11 +260,11 @@ If token missing: print exact guide + `open-dashboard` links; do not fake succes
 - `status` shows compose running + proxy route present + optional HTTP health check to upstream
 - Acceptance: register two real local apps (or examples) without changing their git trees
 
-### Phase 3 — Cloudflare tunnel + wildcard
+### Phase 3 — Cloudflare tunnel + exact DNS
 
 - Generated cloudflared config → single origin Caddy
 - `tunnel init/install/status`
-- Wildcard DNS ensure
+- Persistent machine identity and exact endpoint DNS ensure
 - Acceptance: public `https://slug.public_domain` hits same app as local URL while tunnel service runs; kill tunnel service → local URL still works
 
 ### Phase 4 — Polish
@@ -273,11 +280,35 @@ If token missing: print exact guide + `open-dashboard` links; do not fake succes
 
 1. Two projects registered **outside** their repos; `git status` clean inside both project repos after `add`/`up`.
 2. Both up in parallel; `https://a.localhost` and `https://b.localhost` (or chosen local scheme) route correctly.
-3. Optional: both reachable via `https://a.<public_domain>` and `https://b.<public_domain>` with **only wildcard DNS**, one tunnel process.
+3. Optional: both reachable via machine-qualified public hostnames through one tunnel process on that machine; a second machine can expose its projects simultaneously through a separate tunnel.
 4. Tunnel process supervised (restart on crash); documented.
 5. `unlocalhost status --json` usable by an agent.
 6. README explains local fallback when Cloudflare is down.
 7. No Laravel/PHP-specific code paths.
+8. `unlocalhost setup` asks for outcomes first and never asks the user to choose
+   a host port.
+9. A Docker-free Node project with a `dev` script can be configured, supervised,
+   proxied, and tunneled through the same workflow.
+10. One project may combine Compose endpoints and host-managed processes.
+11. Project-level public exposure is explicit; local-only registrations do not
+    receive public Caddy routes even when the machine tunnel exists.
+12. A plain static project selects `public/` as its document root when
+    `public/index.html` exists and needs no user-supplied server command.
+
+## Goal-oriented setup extension
+
+The primary human interface is `unlocalhost setup` from the project directory.
+It offers local HTTPS, development server/HMR, and remote access before asking
+any topology question. It detects Compose or a local package dev command,
+allocates all loopback ports, installs/reuses machine services, starts the
+selected providers, and emits structured follow-up actions when application
+configuration is unavoidable.
+
+The universal managed-process contract includes `HOST`, `PORT`, `VITE_PORT`,
+`UNLOCALHOST_LOCAL_URL`, optional `UNLOCALHOST_PUBLIC_URL`, canonical
+`UNLOCALHOST_URL`, and `UNLOCALHOST_WS_URL`. Docker Compose and managed commands
+are endpoint providers and may coexist in one project. Lower-level `add`,
+`endpoint`, `proxy`, and `tunnel` commands remain supported for advanced use.
 
 ---
 
@@ -301,7 +332,7 @@ For dogfood without dirtying team compose: prefer **external override** mapping 
 1. Skeleton + config types + `init`/`add`/`list`
 2. Caddyfile generate + proxy run/reload + local HTTPS
 3. Compose up/down + overrides path
-4. Tunnel service + wildcard DNS
+4. Tunnel service + exact project DNS
 5. Doctor + JSON + docs polish
 
 ---
@@ -310,21 +341,21 @@ For dogfood without dirtying team compose: prefer **external override** mapping 
 
 - Do not add a web UI in v1.
 - Do not require files inside project repositories.
-- Do not create per-project tunnels or per-project DNS.
+- Do not create per-project tunnels; exact endpoint DNS belongs to the machine tunnel lifecycle.
 - Do not implement framework env patching (`APP_URL`) automatically unless behind an explicit optional flag later — v1 prints the public/local URL and lets the user/agent set env themselves.
 
 ---
 
 ## Definition of “pass to next human”
 
-Ship a binary or `go run`/`npx` path, README quickstart with **wildcard** CF section, and a short `docs/concepts.md` explaining: compose vs proxy vs tunnel, and why IPs are unnecessary when Caddy routes by Host.
+Ship a binary or `go run`/`npx` path, README quickstart with the machine-specific Cloudflare section, and a short `docs/concepts.md` explaining: compose vs proxy vs tunnel, and why IPs are unnecessary when Caddy routes by Host.
 
 ---
 
 ## One-paragraph pitch (for README)
 
-> unlocalhost runs many local HTTP apps at once without port chaos: an external project registry, one Caddy for HTTPS hostname routing, and one optional Cloudflare tunnel with a single wildcard DNS record. Project git repos stay untouched so teams are not forced into personal tooling.
+> unlocalhost runs many local HTTP apps at once without port chaos: an external project registry, one Caddy for HTTPS hostname routing, and one optional Cloudflare tunnel per machine with automatic project DNS. Project git repos stay untouched so teams are not forced into personal tooling.
 
 ---
 
-*Plan derived from product discussion: multi-machine host (e.g. Mac Studio), CLI for humans and coding agents, Caddy OK, wildcard CF only, no UI required for MVP.*
+*Plan derived from product discussion: independent development machines, CLI for humans and coding agents, Caddy routing, exact Cloudflare DNS, and no UI required for MVP.*

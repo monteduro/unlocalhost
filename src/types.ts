@@ -8,6 +8,12 @@ export interface GlobalConfig {
   port_range_end: number;
   local_domain_suffix: string;
   public_domain: string;
+  /** Stable identifier used to keep public hostnames and tunnels machine-specific. */
+  machine_id: string;
+  /** Human-selected, domain-unique label used in public endpoint hostnames. */
+  machine_alias: string;
+  /** Existing installations without this field are read as legacy wildcard mode. */
+  dns_mode: "project" | "wildcard";
   tunnel_enabled: boolean;
   tunnel_name: string;
   cloudflare_account_id: string;
@@ -33,6 +39,8 @@ export interface ProjectConfig {
   path: string;
   slug: string;
   enabled: boolean;
+  /** Defaults to true for registrations created before project-level exposure existed. */
+  public_enabled?: boolean;
   compose_file?: string;
   compose_override?: string;
   compose_port_services?: string[];

@@ -2,6 +2,11 @@
 
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
+import {
+  checkbox as promptCheckbox,
+  input as promptInput,
+  select as promptSelect,
+} from "@inquirer/prompts";
 import { Command } from "commander";
 import {
   generateCaddyfile,
@@ -22,8 +27,11 @@ import {
 import {
   initializeHome,
   loadGlobalConfig,
+  migrateToProjectDns,
+  normalizeMachineAlias,
   saveGlobalConfig,
   serializeProject,
+  suggestedMachineAlias,
 } from "./config.js";
 import { dependencyHelp } from "./dependencies.js";
 import { runDoctor } from "./doctor.js";
@@ -41,11 +49,13 @@ import {
   removeEndpoint,
   removeProject,
   setEndpointCommand,
+  setProjectPublicEnabled,
 } from "./registry.js";
 import {
   readEndpointLogs,
   startProjectRunners,
   stopProjectRunners,
+  syncLaravelViteHotFile,
 } from "./runner.js";
 import {
   installService,
@@ -55,11 +65,30 @@ import {
   uninstallService,
 } from "./services.js";
 import { fullStatus } from "./status.js";
-import { initializeTunnel, readTunnelId } from "./tunnel.js";
 import {
-  endpointLocalUrl,
-  endpointPublicUrl,
+  automaticComposeCandidate,
+  composeDevCandidate,
+  defaultSetupFeatures,
+  defaultSlug,
+  detectProject,
+  devServerInstructions,
+  hostDevDependenciesAvailable,
+  managedDevCommand,
+  managedStaticCommand,
+  parseSetupFeatures,
+  rankedHttpCandidates,
+  type ProjectDetection,
+  type SetupFeature,
+} from "./setup.js";
+import {
+  ensureDnsRoutes,
+  initializeTunnel,
+  projectPublicHostnames,
+  readTunnelId,
+} from "./tunnel.js";
+import {
   localUrl,
+  publicHostnameForSlug,
   projectEndpointUrl,
   publicUrl,
 } from "./urls.js";
@@ -183,22 +212,250 @@ async function rebuildRoutes(home: string, config: GlobalConfig): Promise<{
   return { ...rebuilt, reloaded: await maybeReloadCaddy(home) };
 }
 
+async function configuredTunnelId(home: string): Promise<string | null> {
+  try {
+    return await readTunnelId(home);
+  } catch {
+    return null;
+  }
+}
+
+async function ensureProjectDns(
+  home: string,
+  config: GlobalConfig,
+  projects: ProjectConfig[],
+) {
+  if (!config.tunnel_enabled || config.dns_mode !== "project") return [];
+  const tunnelId = await configuredTunnelId(home);
+  if (!tunnelId) return [];
+  return await ensureDnsRoutes(
+    config,
+    tunnelId,
+    projectPublicHostnames(config, projects),
+  );
+}
+
+async function removeProjectDns(
+  config: GlobalConfig,
+  projects: ProjectConfig[],
+) {
+  if (config.dns_mode !== "project") return [];
+  return projectPublicHostnames(config, projects).map((hostname) => ({
+    hostname,
+    status: "retained" as const,
+  }));
+}
+
 async function selectProjects(
   home: string,
   id: string | undefined,
   all: boolean | undefined,
 ): Promise<ProjectConfig[]> {
-  if (Boolean(id) === Boolean(all)) {
-    throw new UnlocalhostError('Specify exactly one project id or "--all"');
+  if (id && all) {
+    throw new UnlocalhostError('Specify a project id or "--all", not both');
   }
-  return all ? await listProjects(home) : [await getProject(home, id!)];
+  if (all) return await listProjects(home);
+  if (id) return [await getProject(home, id)];
+  const cwd = path.resolve(process.cwd());
+  const matches = (await listProjects(home))
+    .filter((project) => {
+      const relative = path.relative(project.path, cwd);
+      return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    })
+    .sort((left, right) => right.path.length - left.path.length);
+  if (matches[0]) return [matches[0]];
+  throw new UnlocalhostError(
+    'Current directory is not a registered project; pass an id or use "--all"',
+  );
+}
+
+async function waitForEndpointHealth(
+  projects: ProjectConfig[],
+  timeoutMs = 5_000,
+): Promise<Map<string, boolean>> {
+  const endpoints = projects.flatMap((project) =>
+    projectEndpoints(project).map((endpoint) => ({ project, endpoint })),
+  );
+  const result = new Map<string, boolean>();
+  const pending = new Set(endpoints.map(({ project, endpoint }) => `${project.id}/${endpoint.id}`));
+  const deadline = Date.now() + timeoutMs;
+  while (pending.size > 0 && Date.now() < deadline) {
+    await Promise.all(
+      endpoints.map(async ({ project, endpoint }) => {
+        const key = `${project.id}/${endpoint.id}`;
+        if (!pending.has(key)) return;
+        try {
+          await fetch(`http://${endpoint.upstream.host}:${endpoint.upstream.port}`, {
+            signal: AbortSignal.timeout(300),
+          });
+          result.set(key, true);
+          pending.delete(key);
+        } catch {
+          // A process or container may still be starting.
+        }
+      }),
+    );
+    if (pending.size > 0) await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  for (const key of pending) result.set(key, false);
+  return result;
+}
+
+async function chooseSetupFeatures(
+  detection: ProjectDetection,
+  value: string | undefined,
+  command: Command,
+): Promise<SetupFeature[]> {
+  if (value) return parseSetupFeatures(value);
+  const defaults = defaultSetupFeatures(detection);
+  if (
+    globalOptions(command).yes ||
+    wantsJson(command) ||
+    !process.stdin.isTTY ||
+    !process.stderr.isTTY
+  ) {
+    return defaults;
+  }
+  const options: Array<{ feature: SetupFeature; label: string }> = [
+    { feature: "https", label: "Local domain + HTTPS (recommended)" },
+    ...(detection.devCommand
+      ? [{
+          feature: "dev" as const,
+          label: `Development server / HMR (detected: ${detection.devServer ?? "npm script"})`,
+        }]
+      : []),
+    { feature: "remote", label: "Remote access with Cloudflare Tunnel" },
+  ];
+  process.stderr.write(
+    `Project detected: ${[
+      detection.composeFile ? "Docker Compose" : null,
+      detection.devServer,
+      detection.staticRoot && !detection.devCommand ? `static HTML (${path.relative(detection.path, detection.staticRoot) || "."})` : null,
+    ].filter(Boolean).join(" · ") || "generic HTTP project"}\n`,
+  );
+  const selected = await promptCheckbox<SetupFeature>({
+    message: "What do you want to enable?",
+    required: true,
+    choices: options.map((option) => ({
+      name: option.label,
+      value: option.feature,
+      checked: defaults.includes(option.feature),
+    })),
+  });
+  return parseSetupFeatures(selected.join(","));
+}
+
+async function chooseSetupComposeCandidate(
+  candidates: ComposeCandidate[],
+  selection: string | undefined,
+  command: Command,
+): Promise<ComposeCandidate> {
+  if (selection) return selectComposeCandidates(candidates, selection)[0]!;
+  const automatic = automaticComposeCandidate(candidates);
+  if (automatic) return automatic;
+  const likely = rankedHttpCandidates(candidates);
+  if (likely.length === 0) {
+    throw new UnlocalhostError(
+      "No likely HTTP Compose service was found; pass --services <service>:<port>",
+    );
+  }
+  if (
+    globalOptions(command).yes ||
+    wantsJson(command) ||
+    !process.stdin.isTTY ||
+    !process.stderr.isTTY
+  ) {
+    return likely[0]!;
+  }
+  return await promptSelect<ComposeCandidate>({
+    message: "Which service serves the application?",
+    choices: likely.map((candidate) => ({
+      name: `${candidate.service}:${candidate.containerPort} (${candidate.source})`,
+      value: candidate,
+    })),
+  });
+}
+
+async function promptForDomain(command: Command): Promise<string> {
+  if (
+    globalOptions(command).yes ||
+    wantsJson(command) ||
+    !process.stdin.isTTY ||
+    !process.stderr.isTTY
+  ) {
+    throw new UnlocalhostError(
+      "Remote access needs a public domain; rerun setup with --domain <domain>",
+    );
+  }
+  const answer = await promptInput({
+    message: "Public Cloudflare root domain",
+    required: true,
+    validate: (value) => value.trim() ? true : "A public domain is required",
+  });
+  return answer.trim().replace(/^\*\./, "");
+}
+
+async function promptForMachineAlias(command: Command): Promise<string> {
+  if (
+    globalOptions(command).yes ||
+    wantsJson(command) ||
+    !process.stdin.isTTY ||
+    !process.stderr.isTTY
+  ) {
+    throw new UnlocalhostError(
+      "Remote access needs a persistent machine alias; rerun setup with --machine <alias>",
+    );
+  }
+  const fallback = suggestedMachineAlias();
+  const answer = await promptInput({
+    message: "Alias for this machine (must be unique on the domain)",
+    default: fallback,
+    validate: (value) => {
+      try {
+        normalizeMachineAlias(value.trim() || fallback);
+        return true;
+      } catch (error) {
+        return errorMessage(error);
+      }
+    },
+  });
+  return normalizeMachineAlias(answer.trim() || fallback);
+}
+
+async function promptForRunCommand(
+  command: Command,
+  purpose: "application" | "development server",
+): Promise<string[]> {
+  if (
+    globalOptions(command).yes ||
+    wantsJson(command) ||
+    !process.stdin.isTTY ||
+    !process.stderr.isTTY
+  ) {
+    throw new UnlocalhostError(
+      `No standard ${purpose} command was detected; rerun setup with --run <command...>`,
+    );
+  }
+  process.stderr.write(
+    `\nNo standard ${purpose} command was detected.\n` +
+      "Enter the command you normally use. unlocalhost injects HOST and PORT; " +
+      "use {host} or {port} only when the command needs explicit arguments.\n",
+  );
+  const prompt = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const answer = (await prompt.question("Start command: ")).trim();
+    if (!answer) throw new UnlocalhostError("A start command is required");
+    return normalizeRunCommand([answer])!;
+  } finally {
+    prompt.close();
+  }
 }
 
 const program = new Command();
 program
   .name("unlocalhost")
   .description("Develop on your own machine from anywhere.")
-  .version("0.1.0-alpha.0")
+  .version("0.1.0-alpha.1")
   .option("--home <path>", "state directory (default: UNLOCALHOST_HOME or ~/.unlocalhost)")
   .option("--json", "emit machine-readable JSON where supported")
   .option("--yes", "accept non-interactive defaults")
@@ -207,28 +464,424 @@ program
     "after",
     `
 Agent-ready workflow:
-  unlocalhost doctor
-  unlocalhost --yes add "$PWD" --slug <slug> --services <http-service>:<container-port>
-  unlocalhost up <slug>
+  unlocalhost --yes setup "$PWD" --features https,dev
+  unlocalhost --yes setup "$PWD" --features https,dev,remote --domain <domain> --machine <alias>
   unlocalhost --json status <slug>
   unlocalhost url <slug> --public
 
-One-time public setup:
-  cloudflared tunnel login
-  unlocalhost tunnel init --domain <domain> --name unlocalhost
-  unlocalhost tunnel install
-  unlocalhost proxy install
+Run "unlocalhost setup" without flags for the interactive wizard. It detects
+Compose or a local package dev command, allocates every port, configures Caddy,
+and optionally reuses this machine's tunnel and exact project DNS. Project files are never edited;
+required application changes are printed as explicit follow-up actions.
 
-The tunnel and wildcard DNS are machine-wide; adding another project requires
-no Cloudflare changes. See "unlocalhost endpoint add --help" for Vite/HMR and
-GUIDE.md for the complete human and agent workflow.`,
+The lower-level add, endpoint, proxy, and tunnel commands remain available for
+advanced automation. See GUIDE.md for the full reference.`,
   );
+
+program
+  .command("setup")
+  .description("configure the current project with a short goal-oriented wizard")
+  .argument("[path]", "project directory", ".")
+  .option("--slug <slug>", "hostname-safe project id; defaults to the directory name")
+  .option(
+    "--features <list>",
+    "non-interactive features: https,dev,remote (comma-separated)",
+  )
+  .option("--services <selection>", "primary Compose HTTP service; service:port disambiguates")
+  .option("--domain <domain>", "public Cloudflare domain when remote access is selected")
+  .option("--machine <alias>", "persistent, domain-unique machine alias for public hostnames")
+  .option("--name <name>", "display name")
+  .option("--no-start", "configure without starting the project")
+  .option("--run <command...>", "managed local command; place this option last")
+  .addHelpText(
+    "after",
+    `
+Interactive quick start:
+  cd my-project
+  unlocalhost setup
+
+Agent/non-interactive examples:
+  unlocalhost --yes setup . --features https,dev
+  unlocalhost --yes setup . --features https,dev,remote --domain example.com --machine studio
+
+The wizard uses a checkbox list for outcomes before asking any project-specific
+question. Ports, loopback mappings, Caddy routes, process environment, machine
+identity, tunnel, and exact project DNS are managed automatically. Project
+source and configuration are never edited. Static public/index.html projects
+use public/ as their document root; other unknown stacks ask for the start
+command. When an application setting is required it prints a precise follow-up
+action. A legacy devhost Caddy service is stopped and archived automatically so
+it cannot share the proxy ports with unlocalhost. The first remote setup stores
+one readable machine alias and reuses it for later projects.`,
+  )
+  .action(async (projectPath: string, options, command: Command) => {
+    const home = homeFor(command);
+    const detection = await detectProject(projectPath);
+    const features = await chooseSetupFeatures(detection, options.features, command);
+    const wantsDev = features.includes("dev");
+    const wantsRemote = features.includes("remote");
+    const wantsHttps = features.includes("https");
+    const explicitRun = normalizeRunCommand(options.run);
+
+    const initialized = await initializeHome(home);
+    let config = initialized.config;
+    const previousPublicHostnames = wantsRemote && !config.machine_alias
+      ? projectPublicHostnames(config, await listProjects(home))
+      : [];
+    if (options.domain) {
+      config = {
+        ...config,
+        public_domain: String(options.domain).replace(/^\*\./, ""),
+      };
+    }
+    if (wantsRemote && !config.public_domain) {
+      config = { ...config, public_domain: await promptForDomain(command) };
+    }
+    if (options.machine) {
+      const requestedAlias = normalizeMachineAlias(String(options.machine));
+      if (config.machine_alias && config.machine_alias !== requestedAlias) {
+        throw new UnlocalhostError(
+          `This machine is already named "${config.machine_alias}"; edit config.toml deliberately to rename it`,
+        );
+      }
+      config = { ...config, machine_alias: requestedAlias };
+    }
+    if (wantsRemote && !config.machine_alias) {
+      config = { ...config, machine_alias: await promptForMachineAlias(command) };
+    }
+    const routingMigration = wantsRemote
+      ? migrateToProjectDns(config)
+      : { config, migrated: false };
+    config = routingMigration.config;
+    config = { ...config, tunnel_enabled: wantsRemote || config.tunnel_enabled };
+    await saveGlobalConfig(home, config);
+
+    const slug = options.slug ?? defaultSlug(detection.path);
+    const registered = await listProjects(home);
+    const samePath = registered.find((project) => project.path === detection.path);
+    const sameId = registered.find((project) => project.id === slug);
+    if (samePath && sameId && samePath.id !== sameId.id) {
+      throw new UnlocalhostError(
+        `Project path is registered as "${samePath.id}", while slug "${slug}" belongs to another project`,
+      );
+    }
+    if (sameId && sameId.path !== detection.path) {
+      throw new UnlocalhostError(
+        `Slug "${slug}" is already registered for ${sameId.path}; pass a different --slug`,
+      );
+    }
+
+    let project = samePath ?? sameId ?? null;
+    let discovery: Awaited<ReturnType<typeof discoverCompose>> | null = null;
+    let primaryCandidate: ComposeCandidate | null = null;
+    let devEndpointId = "web";
+    const existingManagedProcess = project
+      ? projectEndpoints(project).some((endpoint) => endpoint.run_command)
+      : false;
+    let requestedRun = explicitRun;
+    if (
+      !requestedRun &&
+      !detection.devCommand &&
+      !detection.staticRoot &&
+      !existingManagedProcess &&
+      ((!project && !detection.composeFile) || wantsDev)
+    ) {
+      requestedRun = await promptForRunCommand(
+        command,
+        detection.composeFile ? "development server" : "application",
+      );
+    }
+    const managedCommand = requestedRun ?? managedDevCommand(detection) ?? managedStaticCommand(detection);
+
+    if (!project) {
+      if (detection.composeFile) {
+        discovery = await discoverCompose(detection.path, detection.composeFile);
+        primaryCandidate = await chooseSetupComposeCandidate(
+          discovery.candidates,
+          options.services,
+          command,
+        );
+        project = await addProject(home, {
+          path: detection.path,
+          slug,
+          name: options.name,
+          compose: discovery.composeFile,
+          composePortServices: discovery.publishedServices,
+          service: primaryCandidate.service,
+          containerPort: primaryCandidate.containerPort,
+          public: wantsRemote,
+        });
+      } else {
+        if (!managedCommand) {
+          throw new UnlocalhostError(
+            "No Compose application or managed local command was found; select the development server or pass --run <command...>",
+          );
+        }
+        project = await addProject(home, {
+          path: detection.path,
+          slug,
+          name: options.name,
+          run: managedCommand,
+          public: wantsRemote,
+        });
+      }
+    } else {
+      project = await setProjectPublicEnabled(home, project.id, wantsRemote);
+      if (!project.compose_file && managedCommand && !project.run_command) {
+        await setEndpointCommand(home, project.id, "web", managedCommand);
+        project = await getProject(home, project.id);
+      }
+    }
+
+    if (wantsDev && project.compose_file && detection.devServer === "vite") {
+      discovery ??= await discoverCompose(detection.path, project.compose_file);
+      primaryCandidate ??= discovery.candidates.find(
+        (candidate) =>
+          candidate.service === project!.compose_service &&
+          candidate.containerPort === project!.container_port,
+      ) ?? await chooseSetupComposeCandidate(discovery.candidates, options.services, command);
+      const primaryIsDevServer =
+        (primaryCandidate.containerPort >= 5100 && primaryCandidate.containerPort < 5300) ||
+        /vite/i.test(primaryCandidate.service);
+      if (primaryIsDevServer) {
+        devEndpointId = "web";
+      } else {
+        const endpointId = "vite";
+        const existingEndpoint = getEndpoint(project, endpointId);
+        if (!existingEndpoint) {
+          const useHostRunner =
+            Boolean(managedCommand) &&
+            (await hostDevDependenciesAvailable(detection)) &&
+            Boolean(detection.packageManager && commandExists(detection.packageManager));
+          const composeCandidate = useHostRunner
+            ? null
+            : composeDevCandidate(
+                discovery.candidates,
+                primaryCandidate,
+                detection.devServer,
+              );
+          if (composeCandidate) {
+            await addEndpoint(home, project.id, {
+              id: endpointId,
+              slug: composeEndpointSlug(project.slug, endpointId),
+              service: composeCandidate.service,
+              containerPort: composeCandidate.containerPort,
+            });
+          } else if (managedCommand) {
+            await addEndpoint(home, project.id, {
+              id: endpointId,
+              slug: composeEndpointSlug(project.slug, endpointId),
+              run: managedCommand,
+            });
+          }
+        }
+        devEndpointId = endpointId;
+        project = await getProject(home, project.id);
+      }
+    }
+
+    const caddy = await rebuildRoutes(home, config);
+    if ((wantsHttps || wantsRemote) && !commandExists("caddy")) {
+      throw new UnlocalhostError(dependencyHelp("caddy"));
+    }
+    if (wantsHttps || wantsRemote) {
+      await validateCaddyfile(home);
+      // Installation is idempotent and also retires a conflicting pre-rename
+      // devhost proxy, even when the unlocalhost service already exists.
+      await installService(home, "proxy");
+    }
+
+    let tunnelResult: Record<string, unknown> | null = null;
+    if (wantsRemote) {
+      if (!commandExists("cloudflared")) {
+        throw new UnlocalhostError(dependencyHelp("cloudflared"));
+      }
+      const publicProjects = await listProjects(home);
+      const hostnames = projectPublicHostnames(config, publicProjects);
+      let initializedTunnel: Awaited<ReturnType<typeof initializeTunnel>>;
+      try {
+        initializedTunnel = await initializeTunnel(home, config, hostnames);
+      } catch (error) {
+        const needsLogin = /login|authenticate|cert\.pem|origin certificate/i.test(
+          errorMessage(error),
+        );
+        if (!needsLogin || !process.stdin.isTTY || wantsJson(command)) throw error;
+        process.stderr.write(
+          "\nCloudflare authentication is required. Opening the login flow...\n",
+        );
+        const loginCode = await runForeground("cloudflared", ["tunnel", "login"]);
+        if (loginCode !== 0) throw error;
+        initializedTunnel = await initializeTunnel(home, config, hostnames);
+      }
+      // Reinstalling is intentional: a wildcard-to-machine migration changes
+      // the tunnel id stored in the supervised service definition.
+      await installService(home, "tunnel", initializedTunnel.tunnel.id);
+      tunnelResult = {
+        ...initializedTunnel,
+        tunnel_id: initializedTunnel.tunnel.id,
+        running: true,
+        machine_id: config.machine_id,
+        machine_alias: config.machine_alias,
+        migrated_from_wildcard: routingMigration.migrated,
+      };
+    }
+
+    const lifecycle: Record<string, unknown> = {};
+    if (options.start !== false) {
+      if (project.compose_file) {
+        await runCompose(home, project, "up");
+        lifecycle.compose = "started";
+      }
+      if (projectEndpoints(project).some((endpoint) => endpoint.run_command)) {
+        lifecycle.processes = await startProjectRunners(home, config, project);
+      }
+    }
+
+    const health =
+      options.start === false
+        ? new Map<string, boolean>()
+        : await waitForEndpointHealth([project]);
+    if (
+      options.start !== false &&
+      wantsDev &&
+      detection.framework === "laravel" &&
+      detection.devServer === "vite"
+    ) {
+      const viteEndpoint = getEndpoint(project, devEndpointId);
+      if (viteEndpoint && health.get(`${project.id}/${devEndpointId}`) !== false) {
+        await syncLaravelViteHotFile(
+          project,
+          viteEndpoint,
+          projectEndpointUrl(project, config, devEndpointId, wantsRemote)!,
+          true,
+        );
+      }
+    }
+    const instructions = wantsDev
+      ? devServerInstructions(detection, {
+          localUrl: projectEndpointUrl(project, config, devEndpointId, false)!,
+          publicUrl: projectEndpointUrl(project, config, devEndpointId, true),
+          appLocalUrl: projectEndpointUrl(project, config, "web", false)!,
+          appPublicUrl: projectEndpointUrl(project, config, "web", true),
+        })
+      : [];
+    if (routingMigration.migrated) {
+      instructions.push({
+        level: "info",
+        title: "Public routing migrated to this machine",
+        lines: [
+          `Machine id: ${config.machine_id}`,
+          `Machine alias: ${config.machine_alias}`,
+          "Existing wildcard DNS and legacy tunnels were left untouched so another machine is not disrupted.",
+        ],
+      });
+    }
+    const currentPublicHostnames = projectPublicHostnames(
+      config,
+      await listProjects(home),
+    );
+    const obsoletePublicHostnames = previousPublicHostnames.filter(
+      (hostname) => !currentPublicHostnames.includes(hostname),
+    );
+    if (obsoletePublicHostnames.length > 0) {
+      instructions.push({
+        level: "action",
+        title: "Remove previous machine hostnames from Cloudflare DNS",
+        lines: obsoletePublicHostnames.map((hostname) => `Delete CNAME: ${hostname}`),
+      });
+    }
+    if (options.start !== false) {
+      for (const endpoint of projectEndpoints(project)) {
+        if (health.get(`${project.id}/${endpoint.id}`) !== false) continue;
+        if (endpoint.run_command) {
+          instructions.push({
+            level: "action",
+            title: `${endpoint.id} did not bind its managed endpoint`,
+            lines: [
+              "Make the command honor HOST plus PORT (or VITE_PORT); never hardcode the allocated port.",
+              `Inspect: unlocalhost logs ${project.id} --endpoint ${endpoint.id} --stderr`,
+            ],
+          });
+        } else if (endpoint.id === devEndpointId && endpoint.compose_service) {
+          const detectedCommand = detection.devCommand?.join(" ") ?? "the project's normal dev command";
+          instructions.push({
+            level: "action",
+            title: `${endpoint.id} is mapped but not running inside Compose`,
+            lines: [
+              `Start ${detectedCommand} exactly once in service ${endpoint.compose_service}.`,
+              `Then verify: unlocalhost --json status ${project.id}`,
+            ],
+          });
+        } else {
+          instructions.push({
+            level: "info",
+            title: `${endpoint.id} is not responding yet`,
+            lines: [`Check again with: unlocalhost status ${project.id}`],
+          });
+        }
+      }
+    }
+    if (wantsHttps && process.stdin.isTTY && !wantsJson(command)) {
+      process.stderr.write("\nTrusting the local Caddy certificate authority (your OS may ask for a password)...\n");
+      const trustCode = await runForeground("caddy", ["trust"]);
+      if (trustCode !== 0) {
+        instructions.push({
+          level: "action",
+          title: "Trust local HTTPS",
+          lines: ["Run: caddy trust"],
+        });
+      }
+    } else if (wantsHttps) {
+      instructions.push({
+        level: "info",
+        title: "Local HTTPS trust",
+        lines: ['Run "caddy trust" once on this machine if the certificate is not trusted yet.'],
+      });
+    }
+
+    const endpoints = projectEndpoints(project).map((endpoint) => ({
+      id: endpoint.id,
+      local_url: projectEndpointUrl(project!, config, endpoint.id, false),
+      public_url: projectEndpointUrl(project!, config, endpoint.id, true),
+      managed_process: Boolean(endpoint.run_command),
+      compose_service: endpoint.compose_service ?? null,
+      reachable: health.get(`${project!.id}/${endpoint.id}`) ?? null,
+    }));
+    const human = [
+      `\nReady: ${project.id}`,
+      ...endpoints.flatMap((endpoint) => [
+        `  ${endpoint.id}: ${endpoint.public_url ?? endpoint.local_url}`,
+        ...(endpoint.public_url ? [`       local: ${endpoint.local_url}`] : []),
+      ]),
+      ...instructions.flatMap((instruction) => [
+        "",
+        `${instruction.level === "action" ? "ACTION" : "NOTE"}: ${instruction.title}`,
+        ...instruction.lines.map((line) => `  ${line}`),
+      ]),
+      "",
+      "Next time, from this project: unlocalhost up",
+    ].join("\n");
+    emit(command, human, {
+      schema_version: 1,
+      ok: true,
+      home,
+      detection,
+      features,
+      project,
+      endpoints,
+      instructions,
+      lifecycle,
+      caddy,
+      tunnel: tunnelResult,
+    });
+  });
 
 program
   .command("init")
   .description("create the external unlocalhost state directory")
   .option("--projects-root <path>", "default project discovery hint")
-  .option("--domain <domain>", "public wildcard domain, without '*.'")
+  .option("--domain <domain>", "public Cloudflare domain")
+  .option("--machine <alias>", "persistent, domain-unique public machine alias")
   .option("--account-id <id>", "Cloudflare account id")
   .option("--zone-id <id>", "Cloudflare zone id")
   .option("--http-port <port>", "Caddy loopback HTTP port", parsePort)
@@ -238,6 +891,7 @@ program
     const overrides: Partial<GlobalConfig> = {};
     if (options.projectsRoot) overrides.default_projects_root = options.projectsRoot;
     if (options.domain) overrides.public_domain = String(options.domain).replace(/^\*\./, "");
+    if (options.machine) overrides.machine_alias = normalizeMachineAlias(String(options.machine));
     if (options.accountId) overrides.cloudflare_account_id = options.accountId;
     if (options.zoneId) overrides.cloudflare_zone_id = options.zoneId;
     if (options.httpPort) overrides.caddy_http_port = options.httpPort;
@@ -345,13 +999,14 @@ program
       });
     }
     const caddy = await rebuildRoutes(home, config);
+    const dns = await ensureProjectDns(home, config, [project]);
     const registeredEndpoints = projectEndpoints(project).map((endpoint) => ({
       id: endpoint.id,
       service: endpoint.compose_service ?? null,
       container_port: endpoint.container_port ?? null,
       host_port: endpoint.upstream.port,
-      local_url: endpointLocalUrl(endpoint, config),
-      public_url: endpointPublicUrl(endpoint, config),
+      local_url: projectEndpointUrl(project, config, endpoint.id, false),
+      public_url: projectEndpointUrl(project, config, endpoint.id, true),
     }));
     const human = [
       `Registered ${project.id}:`,
@@ -369,6 +1024,7 @@ program
       project,
       endpoints: registeredEndpoints,
       urls: { local: localUrl(project, config), public: publicUrl(project, config) },
+      dns,
       caddy,
     });
   });
@@ -376,14 +1032,31 @@ program
 program
   .command("rm")
   .alias("remove")
-  .description("remove a registration and its generated external override")
+  .description("stop and remove a registration plus its generated external override")
   .argument("<id>")
-  .action(async (id: string, _options, command: Command) => {
+  .option("--keep-running", "remove registration without stopping Compose")
+  .action(async (id: string, options, command: Command) => {
     const home = homeFor(command);
     const config = await loadGlobalConfig(home);
+    const registered = await getProject(home, id);
+    await stopProjectRunners(home, registered);
+    if (registered.compose_file && !options.keepRunning) {
+      await runCompose(home, registered, "down");
+    }
+    const dns = await removeProjectDns(config, [registered]);
     const project = await removeProject(home, id);
     const caddy = await rebuildRoutes(home, config);
-    emit(command, `Removed ${project.id}`, { ok: true, removed: project.id, caddy });
+    const human = [
+      `Removed ${project.id}`,
+      ...(dns.length > 0
+        ? [
+            "ACTION: delete these DNS records manually from the Cloudflare dashboard:",
+            ...dns.map((route) => `  ${route.hostname}`),
+            "They no longer have a Caddy route and currently return 404.",
+          ]
+        : []),
+    ].join("\n");
+    emit(command, human, { ok: true, removed: project.id, dns, caddy });
   });
 
 program
@@ -431,8 +1104,8 @@ program
           id: endpoint.id,
           slug: endpoint.slug,
           primary: endpoint.primary,
-          local_url: endpointLocalUrl(endpoint, config),
-          public_url: endpointPublicUrl(endpoint, config),
+          local_url: projectEndpointUrl(project, config, endpoint.id, false),
+          public_url: projectEndpointUrl(project, config, endpoint.id, true),
           upstream: `${endpoint.upstream.host}:${endpoint.upstream.port}`,
         })),
       });
@@ -470,10 +1143,11 @@ Examples:
   unlocalhost endpoint add my-app vite
   unlocalhost port my-app --endpoint vite
 
-For public HMR, configure Vite with the generated public endpoint as
-server.origin, allow the app's exact local/public origins in server.cors, and
-use WSS on port 443 (server.ws in Vite 8; server.hmr in older Vite versions).
-Caddy proxies the asset requests and WebSocket automatically.
+The Vite upstream shares the application's browser hostname. Caddy dispatches
+asset paths and HMR internally, so no second public DNS record or cross-origin
+CORS configuration is needed. Laravel projects detected by setup receive an
+external generated Vite wrapper automatically; other Vite projects receive the
+exact origin/HMR action to apply.
 
 For Compose projects, "unlocalhost up" starts the Compose stack but does not run an
 extra npm command inside an existing service. Start that dev server exactly
@@ -495,18 +1169,21 @@ port. This also applies to Next, Webpack, and other Node HTTP dev servers.`,
         ? { run: normalizeRunCommand(options.run)! }
         : {}),
     });
+    const registered = await getProject(home, projectId);
     const caddy = await rebuildRoutes(home, config);
+    const dns = await ensureProjectDns(home, config, [registered]);
     emit(
       command,
-      `Added ${projectId}/${added.id}: ${endpointLocalUrl(added, config)}`,
+      `Added ${projectId}/${added.id}: ${projectEndpointUrl(registered, config, added.id, false)}`,
       {
         ok: true,
         project: projectId,
         endpoint: added,
         urls: {
-          local: endpointLocalUrl(added, config),
-          public: endpointPublicUrl(added, config),
+          local: projectEndpointUrl(registered, config, added.id, false),
+          public: projectEndpointUrl(registered, config, added.id, true),
         },
+        dns,
         caddy,
       },
     );
@@ -547,12 +1224,31 @@ endpoint
   .action(async (projectId: string, name: string, _options, command: Command) => {
     const home = homeFor(command);
     const config = await loadGlobalConfig(home);
+    const project = await getProject(home, projectId);
+    const endpointToRemove = getEndpoint(project, name);
+    const hostname = endpointToRemove && endpointToRemove.id !== "vite"
+      ? publicHostnameForSlug(endpointToRemove.slug, config)
+      : null;
+    const dns =
+      hostname && config.dns_mode === "project"
+        ? [{ hostname, status: "retained" as const }]
+        : [];
     const removed = await removeEndpoint(home, projectId, name);
     const caddy = await rebuildRoutes(home, config);
-    emit(command, `Removed ${projectId}/${removed.id}`, {
+    emit(command, [
+      `Removed ${projectId}/${removed.id}`,
+      ...(dns.length > 0
+        ? [
+            "ACTION: delete this DNS record manually from the Cloudflare dashboard:",
+            `  ${dns[0]!.hostname}`,
+            "It no longer has a Caddy route and currently returns 404.",
+          ]
+        : []),
+    ].join("\n"), {
       ok: true,
       project: projectId,
       removed: removed.id,
+      dns,
       caddy,
     });
   });
@@ -570,8 +1266,8 @@ endpoint
       slug: item.slug,
       primary: item.primary,
       upstream: `${item.upstream.host}:${item.upstream.port}`,
-      local_url: endpointLocalUrl(item, config),
-      public_url: endpointPublicUrl(item, config),
+      local_url: projectEndpointUrl(project, config, item.id, false),
+      public_url: projectEndpointUrl(project, config, item.id, true),
     }));
     if (wantsJson(command)) {
       printJson({ schema_version: 1, project: project.id, endpoints });
@@ -616,15 +1312,31 @@ async function composeOperation(
   const lifecycle = await Promise.all(
     projects.map(async (project) => {
       process.stderr.write(`${operation === "up" ? "Starting" : "Stopping"} ${project.id}...\n`);
-      if (project.compose_file) {
-        await runCompose(home, project, operation);
-        return { project: project.id, manager: "compose" };
+      const hasRunners = projectEndpoints(project).some(
+        (endpoint) => endpoint.run_command,
+      );
+      const managers: string[] = [];
+      let processes: unknown[] = [];
+      if (operation === "up") {
+        if (project.compose_file) {
+          await runCompose(home, project, "up");
+          managers.push("compose");
+        }
+        if (hasRunners) {
+          processes = await startProjectRunners(home, config, project);
+          managers.push("runner");
+        }
+      } else {
+        if (hasRunners) {
+          processes = await stopProjectRunners(home, project);
+          managers.push("runner");
+        }
+        if (project.compose_file) {
+          await runCompose(home, project, "down");
+          managers.push("compose");
+        }
       }
-      const processes =
-        operation === "up"
-          ? await startProjectRunners(home, config, project)
-          : await stopProjectRunners(home, project);
-      return { project: project.id, manager: "runner", processes };
+      return { project: project.id, managers, processes };
     }),
   );
   const caddy = await rebuildRoutes(home, config);
@@ -639,8 +1351,8 @@ async function composeOperation(
 
 program
   .command("up")
-  .description("start saved processes or a registered Compose project")
-  .argument("[id]")
+  .description("start this project's Compose stack and/or saved processes")
+  .argument("[id]", "project id; inferred from the current directory when omitted")
   .option("--all", "start every registered project")
   .action(async (id: string | undefined, options, command: Command) => {
     await composeOperation("up", id, options, command);
@@ -648,8 +1360,8 @@ program
 
 program
   .command("down")
-  .description("stop saved processes or a registered Compose project")
-  .argument("[id]")
+  .description("stop this project's Compose stack and/or saved processes")
+  .argument("[id]", "project id; inferred from the current directory when omitted")
   .option("--all", "stop every registered project")
   .action(async (id: string | undefined, options, command: Command) => {
     await composeOperation("down", id, options, command);
@@ -658,15 +1370,20 @@ program
 program
   .command("restart")
   .description("restart saved processes or a registered Compose project")
-  .argument("<id>")
-  .action(async (id: string, _options, command: Command) => {
+  .argument("[id]", "project id; inferred from the current directory when omitted")
+  .action(async (id: string | undefined, _options, command: Command) => {
     const home = homeFor(command);
     const config = await loadGlobalConfig(home);
-    const project = await getProject(home, id);
+    const [project] = await selectProjects(home, id, false);
+    if (!project) throw new UnlocalhostError("No project is registered");
     process.stderr.write(`Restarting ${project.id}...\n`);
     if (project.compose_file) {
+      await stopProjectRunners(home, project);
       await runCompose(home, project, "down");
       await runCompose(home, project, "up");
+      if (projectEndpoints(project).some((endpoint) => endpoint.run_command)) {
+        await startProjectRunners(home, config, project);
+      }
     } else {
       await stopProjectRunners(home, project);
       await startProjectRunners(home, config, project);
@@ -797,7 +1514,7 @@ caddy
 const proxy = program.command("proxy").description("manage the supervised Caddy proxy");
 proxy
   .command("install")
-  .description("install and start the user service")
+  .description("install and start the user service, replacing a legacy devhost proxy")
   .action(async (_options, command: Command) => {
     const home = homeFor(command);
     const config = await loadGlobalConfig(home);
@@ -873,52 +1590,76 @@ proxy
 const tunnel = program.command("tunnel").description("manage one optional Cloudflare tunnel");
 tunnel
   .command("guide")
-  .description("print the wildcard-only setup guide")
+  .description("print the machine-specific tunnel setup guide")
   .action((_options, command: Command) => {
     const home = homeFor(command);
     const guide = [
       "1. Put the domain on Cloudflare.",
       "2. Run: cloudflared tunnel login",
-      "3. Run: unlocalhost tunnel init --domain <domain> --name unlocalhost",
+      "3. Run: unlocalhost tunnel init --domain <domain> --machine <alias>",
       "4. Run: unlocalhost tunnel install",
       "5. Run: unlocalhost proxy install",
       "6. Run once for local HTTPS trust: caddy trust",
-      "7. Register projects with unlocalhost add; no further Cloudflare or DNS command is needed.",
+      "7. Register projects with unlocalhost setup; their exact DNS records are automatic.",
       "",
-      `Generated tunnel state and public_domain are stored under ${home}; project URLs become <slug>.<public_domain>.`,
+      `Generated tunnel state, machine id, alias, and public_domain are stored under ${home}.`,
+      "Public URLs use <slug>-<machine-alias>.<public_domain>, keeping multiple machines independent.",
       "Automation alternative: set CLOUDFLARE_API_TOKEN and pass --account-id plus --zone-id.",
       "The token needs Account: Cloudflare Tunnel and Zone: DNS Edit.",
-      "Only one proxied wildcard CNAME is created; no per-project DNS records are used.",
-      "Free Universal SSL on a full zone covers only first-level subdomains; nested names need additional certificate coverage.",
+      "Each public endpoint gets one proxied first-level CNAME to this machine's tunnel.",
+      "Project removal prints every exact DNS record that must be deleted manually in Cloudflare; it never claims automatic DNS cleanup.",
     ].join("\n");
     if (wantsJson(command)) printJson({ home, guide: guide.split("\n") });
     else printLine(guide);
   });
 tunnel
   .command("init")
-  .description("create/reuse one named tunnel and ensure wildcard DNS")
+  .description("create/reuse this machine's tunnel and ensure project DNS")
   .option("--domain <domain>", "public domain, without '*.'")
+  .option("--machine <alias>", "persistent, domain-unique public machine alias")
   .option("--name <name>", "tunnel name")
   .option("--account-id <id>", "Cloudflare account id for API-token setup")
   .option("--zone-id <id>", "Cloudflare zone id for API-token setup")
   .action(async (options, command: Command) => {
     const home = homeFor(command);
     const current = await loadGlobalConfig(home);
-    const next: GlobalConfig = {
+    const requestedAlias = options.machine
+      ? normalizeMachineAlias(String(options.machine))
+      : current.machine_alias || await promptForMachineAlias(command);
+    if (current.machine_alias && current.machine_alias !== requestedAlias) {
+      throw new UnlocalhostError(
+        `This machine is already named "${current.machine_alias}"; edit config.toml deliberately to rename it`,
+      );
+    }
+    const requested: GlobalConfig = {
       ...current,
       ...(options.domain ? { public_domain: String(options.domain).replace(/^\*\./, "") } : {}),
-      ...(options.name ? { tunnel_name: options.name } : {}),
       ...(options.accountId ? { cloudflare_account_id: options.accountId } : {}),
       ...(options.zoneId ? { cloudflare_zone_id: options.zoneId } : {}),
+      machine_alias: requestedAlias,
       tunnel_enabled: true,
     };
-    const result = await initializeTunnel(home, next);
+    const migration = migrateToProjectDns(requested);
+    const next: GlobalConfig = {
+      ...migration.config,
+      ...(options.name ? { tunnel_name: options.name } : {}),
+    };
+    const projects = await listProjects(home);
+    const hostnames = projectPublicHostnames(next, projects);
+    const result = await initializeTunnel(home, next, hostnames);
     await saveGlobalConfig(home, next);
     await rebuildRoutes(home, next);
     emit(
       command,
-      `Tunnel ${result.tunnel.name} ready; wildcard DNS ${result.dns}`,
-      { ok: true, ...result, wildcard: `*.${next.public_domain}` },
+      `Tunnel ${result.tunnel.name} ready for ${result.dns.length} public endpoint(s)`,
+      {
+        ok: true,
+        ...result,
+        machine_id: next.machine_id,
+        machine_alias: next.machine_alias,
+        public_domain: next.public_domain,
+        migrated_from_wildcard: migration.migrated,
+      },
     );
   });
 tunnel

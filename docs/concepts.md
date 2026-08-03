@@ -5,10 +5,11 @@ unlocalhost separates three jobs that are often mixed together.
 ## Project process
 
 The project processes are the application itself. They may be started by Docker
-Compose through `unlocalhost up`, by unlocalhost's generic process runner, or
-independently. Each HTTP endpoint has a stable loopback address. unlocalhost
-allocates one from its configured range unless the user supplies an existing
-port.
+Compose, by unlocalhost's generic process runner, or independently. Docker is a
+provider, not an architectural requirement. A project may also combine both
+providers, such as a Compose backend and a host-side development server. Each
+HTTP endpoint has a stable loopback address allocated internally by
+unlocalhost.
 
 One logical project always has a primary `web` endpoint and can have named
 secondary endpoints such as `api`. This models a frontend and backend in the
@@ -25,10 +26,19 @@ published port is necessary, a second Compose file under
 `~/.unlocalhost/overrides` adds only a loopback port mapping.
 
 For bare processes, the runner starts the saved command in the project
-directory and injects `HOST`, `PORT`, and unlocalhost metadata. PID files and logs
-stay under `UNLOCALHOST_HOME`. For Compose, unlocalhost does not route through the
-container network: it generates loopback-only host mappings in the external
-override. Both paths therefore give Caddy the same predictable host-port model.
+directory and injects a universal endpoint contract: `HOST`, `PORT`,
+`VITE_PORT`, local/public/canonical URLs, and the WebSocket URL. PID files and
+logs stay under `UNLOCALHOST_HOME`. For Compose, unlocalhost does not route
+through the container network: it generates loopback-only host mappings in the
+external override. Both paths therefore give Caddy the same predictable
+host-port model.
+
+`unlocalhost setup` detects the provider and asks for outcomes—local HTTPS,
+development server/HMR, and remote access—before resolving project-specific
+details. If the stack is not recognized, the same wizard asks for the command
+normally used to start the application; the user still never chooses a port.
+It owns topology and port decisions but never silently rewrites application
+configuration.
 
 ## Proxy
 
@@ -52,26 +62,39 @@ optional host-level configuration.
 ## Tunnel
 
 The optional Cloudflare Tunnel is a transport into the existing proxy, not a
-proxy per application. One supervised `cloudflared` process receives the whole
-public wildcard and forwards it to Caddy's loopback HTTP listener:
+proxy per application. Each machine has one supervised `cloudflared` process.
+Every independently addressable public endpoint gets an exact,
+machine-qualified first-level DNS record:
 
 ```text
-*.example.com
-  → one <tunnel-id>.cfargotunnel.com CNAME
-  → one cloudflared process
+app-studio.example.com
+  → that machine's <tunnel-id>.cfargotunnel.com CNAME
+  → that machine's cloudflared process
   → http://127.0.0.1:8080
   → Caddy Host routing
 ```
 
-Adding or removing a project changes only unlocalhost's registry and generated
-Caddyfile. It does not create Cloudflare resources. If the tunnel stops, this
-remote path disappears but the local browser-to-Caddy path is unchanged.
+The first remote wizard asks once for the readable `studio` alias. It is stored
+separately from the generated tunnel identity and reused by later projects.
+
+A detected Vite upstream is not independently addressable in the browser.
+Caddy serves its assets and HMR WebSocket through the application's hostname,
+so Vite adds no DNS record and no cross-origin boundary.
+
+This avoids sending two independent development environments through replicas
+of one tunnel, where Cloudflare does not guarantee which connector receives a
+request. Adding a public project creates its exact DNS route automatically. If
+the tunnel stops, this remote path disappears but the local browser-to-Caddy
+path is unchanged.
 
 ## Lifecycle ownership
 
-- unlocalhost owns registry, generated override, Caddy, tunnel, service, and log
-  files in its external state directories.
+- unlocalhost owns registry, generated override, Caddy, machine identity,
+  tunnel, DNS routes, service, and log files in its external state directories.
 - Docker Compose owns the containers described by the project's files.
+- `unlocalhost setup` detects a standard Compose file or local package dev
+  command, or asks for a custom start command, and configures the common path
+  without framework-specific decisions.
 - `unlocalhost add` can inspect a standard Compose file and turn selected
   `ports`/`expose` entries into endpoints; it never guesses which non-HTTP
   services should be exposed.

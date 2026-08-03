@@ -2,9 +2,8 @@
 
 **Develop locally. Work from anywhere.**
 
-unlocalhost makes the development environment running on your own machine
-reachable through stable HTTPS URLs. Your code, Docker containers, databases,
-volumes, and development servers stay where they are. Nothing is deployed.
+unlocalhost makes your local development environment reachable through stable
+HTTPS URLs. Code, containers, databases, volumes, and dev servers stay local. Nothing is deployed.
 
 > Alpha software. Expect sharp edges and interface changes.
 
@@ -31,15 +30,17 @@ stateful databases, Vite, several HTTP services, and ten projects that all want
 the same host ports.
 
 unlocalhost gives each HTTP endpoint a stable hostname, allocates loopback ports
-automatically, and routes everything through one machine-level proxy. An
-optional machine-level tunnel makes the same environment reachable remotely.
+automatically, and routes everything through one optional remote tunnel.
 
 - The real development stack stays on your machine.
 - Compose projects can run simultaneously without host-port collisions.
+- Docker-free Node and static `public/` projects are started and supervised directly.
 - Frontend, API, admin, and Vite can be endpoints of one project.
+- Vite assets and HMR share the app hostname; no second DNS record is needed.
 - Generated overrides and state stay outside project repositories.
-- One Caddy instance and one optional wildcard tunnel serve every project.
-- Humans and coding agents use the same non-interactive CLI and JSON status.
+- One Caddy instance and one optional tunnel serve every project on a machine.
+- Multiple machines stay independent through exact, machine-qualified DNS records.
+- Humans and coding agents share the same non-interactive CLI and JSON status.
 
 ## Installation
 
@@ -72,40 +73,53 @@ npm link
 Missing optional dependencies fail with platform-specific installation
 instructions. Run `unlocalhost doctor` at any time.
 
-## Quick start with a coding agent
+## Quick start
 
-Enter the project you want to work on:
+Enter the project and run the goal-oriented wizard:
 
 ```sh
 cd ~/Sites/my-app
+unlocalhost setup
 ```
 
-Then paste this prompt into your coding agent:
+It first presents an interactive checkbox list:
 
 ```text
-Use the installed unlocalhost CLI to configure this project for local HTTPS and
-remote development. Read the project instructions, inspect the repository and
-any Compose configuration, and do not modify project files unless the framework
-strictly requires it.
+What do you want to enable?
 
-Run unlocalhost doctor first. Initialize the machine state, Caddy proxy, and
-certificate trust only if needed. Detect and register the project's HTTP
-endpoints, including its app, API, admin, or Vite server when present. Do not
-register databases or caches. Reuse the existing machine-wide Cloudflare tunnel;
-if remote access is not configured yet, ask me for the domain before creating it.
+1) Local domain + HTTPS (recommended)
+2) Development server / HMR (shown only when detected)
+3) Remote access with Cloudflare Tunnel
+```
 
-If the project uses Vite, read unlocalhost endpoint add --help, register Vite as
-an endpoint, and update its existing configuration only where needed for the
-generated HTTPS hosts: bind host and port, server.origin, exact allowedHosts and
-CORS origins, and WSS on the public host with client port 443 (server.ws on Vite
-8; server.hmr on older versions). Start Vite exactly once and preserve the
-project's existing configuration style. If the project does not use Vite, skip
-the entire Vite setup.
+unlocalhost then detects a Compose service or local `dev` command, allocates
+every port, configures Caddy, starts the project, and optionally initializes or
+reuses that machine's tunnel. The first remote setup asks once for a persistent machine alias; `my-app-studio.example.com` keeps another machine independent.
+It never patches tracked source or configuration, and disables a legacy `devhost` proxy during upgrades.
+Removal prints the exact DNS records to delete manually; it never reports unverified cleanup.
+If Vite, Next.js, or another tool requires an application setting, the CLI
+prints the exact endpoint and a follow-up action.
 
-Start the project, verify it with unlocalhost --json status, and return every
-local and public URL. Verify that assets use the proxied HTTPS Vite URL and that
-HMR connects over WSS, with no localhost, 127.0.0.1, or [::1] browser URLs.
-Pause only when I must approve a password or browser login.
+Static sites with `public/index.html` use `public/` as their document root
+automatically. Other unknown stacks prompt for their normal start command; the
+user still never chooses a port.
+
+For an agent or script, make the same choices non-interactively:
+
+```sh
+unlocalhost --yes setup . --features https,dev
+unlocalhost --yes setup . --features https,dev,remote --domain example.com --machine studio
+unlocalhost --json status
+```
+
+Or enter the project and give your coding agent this short prompt:
+
+```text
+Run unlocalhost setup in this project. Enable local HTTPS, the detected
+development server when present, and remote access. Follow only the explicit
+actions printed by the CLI, do not invent ports or tunnels, and do not modify
+project files unless setup says an application change is required. Verify the
+result with unlocalhost --json status and return the URLs.
 ```
 
 For manual setup and the complete agent procedure, see [GUIDE.md](GUIDE.md).

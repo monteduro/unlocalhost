@@ -7,13 +7,14 @@ test("README states the remote-development purpose and links the full guide", as
 
   assert.match(readme, /Develop locally\. Work from anywhere\./);
   assert.match(readme, /Nothing is deployed\./);
-  assert.match(readme, /one optional wildcard tunnel serve every project/);
+  assert.match(readme, /one optional tunnel serve every project on a machine/);
+  assert.match(readme, /Multiple machines stay independent/);
+  assert.match(readme, /exact DNS\s+records to delete manually/);
   assert.match(readme, /npm install --global unlocalhost-cli@alpha/);
-  assert.match(readme, /Then paste this prompt into your coding agent/);
-  assert.match(readme, /Run unlocalhost doctor first/);
-  assert.match(readme, /If the project uses Vite/);
-  assert.match(readme, /does not use Vite, skip\s+the entire Vite setup/);
-  assert.match(readme, /server\.ws on Vite\s+8; server\.hmr on older versions/);
+  assert.match(readme, /unlocalhost setup/);
+  assert.match(readme, /What do you want to enable\?/);
+  assert.match(readme, /--features https,dev,remote/);
+  assert.match(readme, /never patches tracked source or configuration/);
   assert.match(readme, /\[GUIDE\.md\]\(GUIDE\.md\)/);
   assert.ok(readme.split("\n").length < 150, "README should remain a concise entry point");
 });
@@ -26,6 +27,10 @@ test("the packaged guide covers operations, agents, and troubleshooting", async 
   const packageConfig = JSON.parse(packageJson) as { files?: string[] };
 
   assert.match(guide, /npm install --global unlocalhost-cli@alpha/);
+  assert.match(guide, /one\s+Cloudflare Tunnel per machine/);
+  assert.match(guide, /exact CNAME for every independently addressable public endpoint/);
+  assert.match(guide, /prints every exact hostname as a\s+manual Cloudflare-dashboard action/);
+  assert.match(guide, /absolute project path and gets `404`/);
 
   for (const heading of [
     "## Remote access with Cloudflare",

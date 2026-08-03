@@ -58,7 +58,7 @@ test("secondary endpoints are grouped under one project and persist", async () =
   assert.equal((await getProject(home, "my-app")).endpoints.length, 0);
 });
 
-test("Compose projects can allocate a host-process endpoint automatically", async () => {
+test("Compose projects can allocate and manage a host-process endpoint", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "unlocalhost-compose-endpoint-"));
   const home = path.join(root, "state");
   const projectPath = path.join(root, "app");
@@ -75,11 +75,15 @@ test("Compose projects can allocate a host-process endpoint automatically", asyn
     compose: "compose.yml",
   });
 
-  const endpoint = await addEndpoint(home, "compose-app", { id: "vite" });
+  const endpoint = await addEndpoint(home, "compose-app", {
+    id: "vite",
+    run: ["npm", "run", "dev"],
+  });
 
   assert.equal(endpoint.slug, "compose-app-vite");
   assert.equal(endpoint.upstream.host, "127.0.0.1");
   assert.ok(endpoint.upstream.port >= 12000);
   assert.notEqual(endpoint.upstream.port, 13000);
   assert.equal(endpoint.compose_service, undefined);
+  assert.deepEqual(endpoint.run_command, ["npm", "run", "dev"]);
 });

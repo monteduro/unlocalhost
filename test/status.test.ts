@@ -42,6 +42,11 @@ test("status schema reports a reachable bare upstream and proxy route", async ()
     await rebuildCaddyfile(home, initialized.config);
     const result = await fullStatus(home, initialized.config);
     assert.equal(result.schema_version, 1);
+    const tunnel = result.tunnel as Record<string, unknown>;
+    assert.equal(tunnel.dns_mode, "project");
+    assert.equal(tunnel.machine_id, initialized.config.machine_id);
+    assert.equal(tunnel.machine_alias, null);
+    assert.equal(tunnel.wildcard, null);
     const projects = result.projects as Array<Record<string, unknown>>;
     assert.equal(projects.length, 1);
     assert.equal(projects[0]?.proxy_route, true);

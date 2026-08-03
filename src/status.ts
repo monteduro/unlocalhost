@@ -7,7 +7,7 @@ import { listProjects } from "./registry.js";
 import { endpointRunnerStatus } from "./runner.js";
 import { serviceInstalled, serviceRunning } from "./services.js";
 import { readTunnelId } from "./tunnel.js";
-import { endpointLocalUrl, endpointPublicUrl, localUrl, publicUrl } from "./urls.js";
+import { localUrl, projectEndpointUrl, publicUrl } from "./urls.js";
 import { exists } from "./files.js";
 import type {
   EndpointStatus,
@@ -46,8 +46,8 @@ async function endpointStatus(
     id: endpoint.id,
     slug: endpoint.slug,
     primary: endpoint.primary,
-    local_url: endpointLocalUrl(endpoint, config),
-    public_url: endpointPublicUrl(endpoint, config),
+    local_url: projectEndpointUrl(project, config, endpoint.id, false)!,
+    public_url: projectEndpointUrl(project, config, endpoint.id, true),
     upstream: `${endpoint.upstream.host}:${endpoint.upstream.port}`,
     proxy_route: proxyRoute,
     upstream_health: health,
@@ -118,7 +118,14 @@ export async function fullStatus(
     installed: tunnelId ? await serviceInstalled(home, "tunnel", tunnelId) : false,
     running: tunnelId ? await serviceRunning(home, "tunnel", tunnelId) : false,
     id: tunnelId,
-    wildcard: config.public_domain ? `*.${config.public_domain}` : null,
+    dns_mode: config.dns_mode,
+    machine_id: config.machine_id || null,
+    machine_alias: config.machine_alias || null,
+    public_domain: config.public_domain || null,
+    wildcard:
+      config.dns_mode === "wildcard" && config.public_domain
+        ? `*.${config.public_domain}`
+        : null,
   };
   return {
     schema_version: STATUS_SCHEMA_VERSION,

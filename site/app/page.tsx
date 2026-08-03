@@ -91,14 +91,12 @@ export default function Home() {
             </div>
             <div className="terminalBody">
               <p>
-                <span className="prompt">$</span> unlocalhost add ~/Sites/acme
-                <br />
-                <span className="indent">--slug acme --services web:80</span>
+                <span className="prompt">$</span> cd ~/Sites/acme
               </p>
-              <p className="terminalMuted">Compose endpoints registered</p>
               <p>
-                <span className="prompt">$</span> unlocalhost up acme
+                <span className="prompt">$</span> unlocalhost setup
               </p>
+              <p className="terminalMuted">HTTPS · dev server · remote</p>
               <div className="terminalResult">
                 <span className="resultDot" />
                 <div>
@@ -106,12 +104,12 @@ export default function Home() {
                   <a href="#install">
                     https://acme.localhost:8443
                   </a>
-                  <a href="#install">https://acme.dev.example.com</a>
+                  <a href="#install">https://acme-studio.example.com</a>
                 </div>
               </div>
               <div className="terminalGrid">
                 <span>compose</span>
-                <strong>running</strong>
+                <strong>optional</strong>
                 <span>vite / hmr</span>
                 <strong>connected</strong>
                 <span>repository</span>
@@ -210,7 +208,7 @@ export default function Home() {
             </div>
             <div>
               <small>Optional tunnel</small>
-              <strong>*.dev.example.com</strong>
+              <strong>exact project DNS</strong>
             </div>
           </div>
         </div>
@@ -245,7 +243,7 @@ export default function Home() {
                 <small>original</small>
               </div>
               <ul>
-                <li>Your existing Compose stack</li>
+                <li>Your Compose stack or local process</li>
                 <li>Your actual database and volumes</li>
                 <li>Your Vite server and live HMR</li>
                 <li>Your machine, remotely reachable</li>
@@ -260,17 +258,17 @@ export default function Home() {
 
       <section className="section shell" id="how">
         <div className="sectionIntro">
-          <p className="kicker">One machine-wide setup</p>
+          <p className="kicker">One goal-oriented setup</p>
           <h2>Project eleven is as easy as project one.</h2>
         </div>
         <div className="steps">
           <article>
             <span className="stepNumber">01</span>
             <div className="stepGlyph">&gt;_</div>
-            <h3>Register the project</h3>
+            <h3>Choose the outcome</h3>
             <p>
-              Compose or a plain Node process. unlocalhost discovers HTTP
-              services and keeps its registry outside the repository.
+              Run one setup command and choose local HTTPS, a detected dev
+              server, and optional remote access.
             </p>
           </article>
           <article>
@@ -278,8 +276,8 @@ export default function Home() {
             <div className="stepGlyph">⌁</div>
             <h3>Route every endpoint</h3>
             <p>
-              Stable loopback ports remove collisions. One Caddy instance gives
-              web, API, admin, and Vite their own HTTPS hostnames.
+              Docker Compose or a plain local process becomes the upstream.
+              Ports and Caddy routes are allocated without user decisions.
             </p>
           </article>
           <article>
@@ -287,8 +285,8 @@ export default function Home() {
             <div className="stepGlyph">↗</div>
             <h3>Reach the machine</h3>
             <p>
-              Add one optional Cloudflare Tunnel and one wildcard DNS record.
-              Every current and future project uses the same route.
+              Reuse one optional tunnel per machine. Exact project DNS keeps
+              multiple Macs independent without moving any project code.
             </p>
           </article>
         </div>
@@ -300,8 +298,8 @@ export default function Home() {
             <p className="kicker">Agent-ready by design</p>
             <h2>One predictable interface for humans and agents.</h2>
             <p className="agentLead">
-              Non-interactive commands, useful failures, versioned JSON status,
-              and no hidden changes inside the project.
+              The same setup works interactively or non-interactively, with
+              useful actions, versioned JSON status, and no hidden project edits.
             </p>
             <div className="agentTags">
               <span>--json</span>
@@ -316,12 +314,12 @@ export default function Home() {
               <span>ready</span>
             </div>
             <pre>
-              <code>{`Use unlocalhost.
+              <code>{`Run unlocalhost setup here.
 
-Inspect this project's HTTP services,
-register it without modifying the repo,
-start it, verify status, and return the
-public HTTPS URL.`}</code>
+Enable HTTPS, the detected dev server,
+and remote access. Follow only the actions
+printed by the CLI, verify status, and
+return the HTTPS URLs.`}</code>
             </pre>
             <div className="codeResponse">
               <Check />
@@ -335,11 +333,11 @@ public HTTPS URL.`}</code>
         <div className="installCard">
           <div className="alphaStamp">alpha 0.1</div>
           <div className="installCopy">
-            <p className="kicker">Start with one machine</p>
+            <p className="kicker">Start with one machine. Add another anytime.</p>
             <h2>Your dev machine is already the dev server.</h2>
             <p>
               unlocalhost is open source and in active alpha. Install the CLI,
-              run the doctor, and keep your first project exactly where it is.
+              enter a project, run setup, and keep the environment exactly where it is.
             </p>
           </div>
           <div className="installCommand">

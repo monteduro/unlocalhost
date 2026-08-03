@@ -1,4 +1,6 @@
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
+import os from "node:os";
 import path from "node:path";
 import { parse, stringify } from "smol-toml";
 import { UnlocalhostError } from "./errors.js";
@@ -14,6 +16,9 @@ export const DEFAULT_CONFIG: GlobalConfig = {
   port_range_end: 19999,
   local_domain_suffix: "localhost",
   public_domain: "",
+  machine_id: "machine",
+  machine_alias: "",
+  dns_mode: "project",
   tunnel_enabled: false,
   tunnel_name: "unlocalhost",
   cloudflare_account_id: "",
@@ -52,6 +57,74 @@ function validSlug(value: unknown, name: string): string {
     throw new UnlocalhostError(`Invalid ${name}: expected a hostname-safe slug`);
   }
   return slug;
+}
+
+function optionalSlug(value: unknown, name: string): string {
+  if (value === undefined || value === "") return "";
+  return validSlug(value, name);
+}
+
+function optionalMachineAlias(value: unknown): string {
+  if (value === undefined || value === "") return "";
+  return normalizeMachineAlias(requiredString(value, "machine_alias"));
+}
+
+export function normalizeMachineAlias(value: string): string {
+  const alias = validSlug(value, "machine_alias");
+  if (alias.length > 32) {
+    throw new UnlocalhostError("Invalid machine_alias: use at most 32 characters");
+  }
+  return alias;
+}
+
+export function suggestedMachineAlias(hostname = os.hostname()): string {
+  const alias = hostname
+    .split(".", 1)[0]!
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32)
+    .replace(/-+$/g, "");
+  return alias || "machine";
+}
+
+function validDnsMode(value: unknown): GlobalConfig["dns_mode"] {
+  if (value === "project" || value === "wildcard") return value;
+  throw new UnlocalhostError('Invalid dns_mode: expected "project" or "wildcard"');
+}
+
+export function generateMachineId(
+  hostname = os.hostname(),
+  entropy = crypto.randomBytes(3).toString("hex"),
+): string {
+  const base = hostname
+    .split(".", 1)[0]!
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 24)
+    .replace(/-+$/g, "") || "machine";
+  const suffix = entropy.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8) || "local";
+  return validSlug(`${base}-${suffix}`, "machine_id");
+}
+
+export function migrateToProjectDns(config: GlobalConfig): {
+  config: GlobalConfig;
+  migrated: boolean;
+} {
+  if (config.dns_mode === "project" && config.machine_id) {
+    return { config, migrated: false };
+  }
+  const machineId = config.machine_id || generateMachineId();
+  return {
+    config: {
+      ...config,
+      machine_id: machineId,
+      dns_mode: "project",
+      tunnel_name: `unlocalhost-${machineId}`,
+    },
+    migrated: config.dns_mode === "wildcard",
+  };
 }
 
 function validCommand(value: unknown, name: string): string[] | undefined {
@@ -117,6 +190,11 @@ export function parseGlobalConfig(source: string): GlobalConfig {
       "public_domain",
       true,
     ),
+    machine_id: optionalSlug(value.machine_id, "machine_id"),
+    machine_alias: optionalMachineAlias(value.machine_alias),
+    // Missing means this file predates per-project DNS and must not silently
+    // change its public hostnames until remote setup explicitly migrates it.
+    dns_mode: validDnsMode(value.dns_mode ?? "wildcard"),
     tunnel_enabled:
       typeof value.tunnel_enabled === "boolean"
         ? value.tunnel_enabled
@@ -218,6 +296,9 @@ export function parseProject(source: string, filename = "project"): ProjectConfi
       port: validPort(upstream.port, `${filename}.upstream.port`),
     },
   };
+  if (typeof value.public_enabled === "boolean") {
+    project.public_enabled = value.public_enabled;
+  }
   if (project.upstream.host !== "127.0.0.1" && project.upstream.host !== "localhost") {
     throw new UnlocalhostError(
       `${filename}.upstream.host: v1 accepts only 127.0.0.1 or localhost`,
@@ -283,6 +364,9 @@ export function serializeProject(project: ProjectConfig): string {
     slug: project.slug,
     enabled: project.enabled,
   };
+  if (project.public_enabled !== undefined) {
+    top.public_enabled = project.public_enabled;
+  }
   if (project.compose_file) top.compose_file = project.compose_file;
   if (project.compose_override) top.compose_override = project.compose_override;
   if (project.compose_port_services !== undefined) {
@@ -313,7 +397,13 @@ export async function initializeHome(home: string, overrides: Partial<GlobalConf
   if (await exists(paths.config)) {
     return { created: false, config: await loadGlobalConfig(home) };
   }
-  const config = { ...DEFAULT_CONFIG, ...overrides };
+  const machineId = overrides.machine_id || generateMachineId();
+  const config = {
+    ...DEFAULT_CONFIG,
+    machine_id: machineId,
+    tunnel_name: `unlocalhost-${machineId}`,
+    ...overrides,
+  };
   await writeAtomic(paths.config, serializeGlobalConfig(config));
   return { created: true, config };
 }
