@@ -344,7 +344,7 @@ public HTTPS URL.`}</code>
           </div>
           <div className="installCommand">
             <span className="prompt">$</span>
-            <code>npm install -g unlocalhost-cli</code>
+            <code>npm install -g unlocalhost-cli@alpha</code>
           </div>
           <div className="installActions">
             <a className="button buttonPrimary" href={repositoryUrl}>

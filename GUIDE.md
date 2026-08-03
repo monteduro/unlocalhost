@@ -108,11 +108,14 @@ global link.
 Install the published alpha:
 
 ```sh
-npm install --global unlocalhost-cli
+npm install --global unlocalhost-cli@alpha
 ```
 
 The npm package is named `unlocalhost-cli`; the installed command and product
-name are both `unlocalhost`.
+name are both `unlocalhost`. Use the explicit `@alpha` tag until a stable
+release is published. npm requires every package to retain a `latest` tag, so
+the first alpha may also resolve without a tag; `@alpha` remains the supported
+prerelease channel.
 
 ## Migrating from the devhost alpha
 
@@ -125,7 +128,7 @@ devhost proxy uninstall
 devhost tunnel uninstall # skip when no tunnel was installed
 mv ~/.devhost ~/.unlocalhost
 npm uninstall --global devhost-cli
-npm install --global unlocalhost-cli
+npm install --global unlocalhost-cli@alpha
 unlocalhost proxy install
 unlocalhost tunnel install # only when the tunnel is configured
 unlocalhost doctor

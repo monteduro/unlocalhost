@@ -123,8 +123,8 @@ Known alpha constraints:
 
 - Publish the GitHub repository and add the short description.
 - Confirm the MIT license, security warning, guide, and alpha release notes.
-- Publish `unlocalhost-cli@0.1.0-alpha.0` and test installation on a clean
-  machine.
+- Publish `unlocalhost-cli@0.1.0-alpha.0` with `npm run release:alpha` and test
+  `npm install --global unlocalhost-cli@alpha` on a clean machine.
 - Replace every `[link]` in this document with the canonical landing URL.
 - Protect the public demo with Cloudflare Access.
 - Record the demo script as a short terminal-first video.

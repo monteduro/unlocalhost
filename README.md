@@ -50,11 +50,15 @@ Requirements:
 - Docker Compose 2.24.4 or newer only for Compose projects.
 - cloudflared only for remote access.
 
-From npm:
+From npm (current alpha channel):
 
 ```sh
-npm install --global unlocalhost-cli
+npm install --global unlocalhost-cli@alpha
 ```
+
+Use the explicit `@alpha` tag while unlocalhost is prerelease software. npm
+requires every package to retain a `latest` tag, so the first alpha may also be
+reachable without the tag; `@alpha` is the supported installation channel.
 
 From this repository:
 

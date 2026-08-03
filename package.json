@@ -16,7 +16,9 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "test": "node --import tsx --test test/*.test.ts",
-    "check": "npm run build && npm test"
+    "check": "npm run build && npm test",
+    "prepublishOnly": "node scripts/guard-alpha-publish.mjs && npm run check",
+    "release:alpha": "npm publish --tag alpha --access public"
   },
   "engines": {
     "node": ">=22"

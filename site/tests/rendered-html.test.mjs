@@ -41,7 +41,7 @@ test("server-renders the finished unlocalhost landing page", async () => {
     /<title>unlocalhost — Develop locally\. Work from anywhere\.<\/title>/i,
   );
   assert.match(html, /Not a deploy\. Your actual environment\./);
-  assert.match(html, /npm install -g unlocalhost-cli/);
+  assert.match(html, /npm install -g unlocalhost-cli@alpha/);
   assert.match(html, /Agent-ready by design/);
   assert.match(html, /https:\/\/unlocalhost\.example\/og\.png/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|SkeletonPreview/);
