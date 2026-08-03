@@ -41,7 +41,7 @@ optional machine-level tunnel makes the same environment reachable remotely.
 - One Caddy instance and one optional wildcard tunnel serve every project.
 - Humans and coding agents use the same non-interactive CLI and JSON status.
 
-## Install
+## Installation
 
 Requirements:
 
@@ -50,23 +50,20 @@ Requirements:
 - Docker Compose 2.24.4 or newer only for Compose projects.
 - cloudflared only for remote access.
 
-For normal use, install the current alpha from npm:
+### Global installation
 
 ```sh
 npm install --global unlocalhost-cli@alpha
 ```
 
-That command installs the `unlocalhost` executable. Do not run the source-build
-commands below as well; continue directly to **First run**.
+This installs the `unlocalhost` command. Use the explicit `@alpha` tag until the
+first stable release.
 
-Use the explicit `@alpha` tag while unlocalhost is prerelease software. npm
-requires every package to retain a `latest` tag, so the first alpha may also be
-reachable without the tag; `@alpha` is the supported installation channel.
-
-Only contributors developing unlocalhost itself should clone this repository
-and use this alternative instead of the global npm installation:
+### From source
 
 ```sh
+git clone https://github.com/monteduro/unlocalhost.git
+cd unlocalhost
 npm install
 npm run build
 npm link
