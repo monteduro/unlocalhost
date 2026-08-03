@@ -94,8 +94,18 @@ endpoints, including its app, API, admin, or Vite server when present. Do not
 register databases or caches. Reuse the existing machine-wide Cloudflare tunnel;
 if remote access is not configured yet, ask me for the domain before creating it.
 
+If the project uses Vite, registering its endpoint is not enough: read
+unlocalhost endpoint add --help, then update the existing Vite configuration for
+the generated local and public hosts. Set the correct bind host and port,
+server.origin, exact allowedHosts and CORS origins, and WSS on the public host
+with client port 443 (server.ws on Vite 8; server.hmr on older versions). Start
+Vite exactly once. Treat this as a required project change and preserve the
+project's existing configuration style.
+
 Start the project, verify it with unlocalhost --json status, and return every
-local and public URL. Pause only when I must approve a password or browser login.
+local and public URL. Verify that assets use the proxied HTTPS Vite URL and that
+HMR connects over WSS, with no localhost, 127.0.0.1, or [::1] browser URLs.
+Pause only when I must approve a password or browser login.
 ```
 
 For manual setup and the complete agent procedure, see [GUIDE.md](GUIDE.md).
