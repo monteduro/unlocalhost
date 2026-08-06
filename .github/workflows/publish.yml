@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Publish alpha
+    name: Publish latest
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -34,5 +34,5 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Publish alpha release
-        run: npm publish --tag alpha --access public
+      - name: Publish latest release
+        run: npm publish --tag latest --access public

@@ -17,8 +17,8 @@
     "dev": "tsx src/cli.ts",
     "test": "node --import tsx --test test/*.test.ts",
     "check": "npm run build && npm test",
-    "prepublishOnly": "node scripts/guard-alpha-publish.mjs && npm run check",
-    "release:alpha": "npm publish --tag alpha --access public"
+    "prepublishOnly": "npm run check",
+    "release": "npm publish --tag latest --access public"
   },
   "engines": {
     "node": ">=22.13.0"
