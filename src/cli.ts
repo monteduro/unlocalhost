@@ -4,6 +4,7 @@ import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import {
   checkbox as promptCheckbox,
+  confirm as promptConfirm,
   input as promptInput,
   select as promptSelect,
 } from "@inquirer/prompts";
@@ -33,7 +34,7 @@ import {
   serializeProject,
   suggestedMachineAlias,
 } from "./config.js";
-import { dependencyHelp } from "./dependencies.js";
+import { dependencyHelp, ensureSetupDependency } from "./dependencies.js";
 import { runDoctor } from "./doctor.js";
 import { getEndpoint, projectEndpoints } from "./endpoints.js";
 import { UnlocalhostError, errorMessage } from "./errors.js";
@@ -111,6 +112,25 @@ function homeFor(command: Command): string {
 
 function wantsJson(command: Command): boolean {
   return Boolean(globalOptions(command).json);
+}
+
+function isInteractive(command: Command): boolean {
+  return !(
+    globalOptions(command).yes ||
+    wantsJson(command) ||
+    !process.stdin.isTTY ||
+    !process.stderr.isTTY
+  );
+}
+
+async function ensureWizardDependency(
+  dependency: "caddy" | "cloudflared",
+  command: Command,
+): Promise<void> {
+  await ensureSetupDependency(dependency, {
+    interactive: isInteractive(command),
+    confirmInstall: async (message) => await promptConfirm({ message, default: true }),
+  });
 }
 
 function emit(command: Command, human: string, data: unknown): void {
@@ -456,7 +476,7 @@ const program = new Command();
 program
   .name("unlocalhost")
   .description("Develop on your own machine from anywhere.")
-  .version("0.1.0-alpha.3")
+  .version("0.1.0-alpha.4")
   .option("--home <path>", "state directory (default: UNLOCALHOST_HOME or ~/.unlocalhost)")
   .option("--json", "emit machine-readable JSON where supported")
   .option("--yes", "accept non-interactive defaults")
@@ -518,11 +538,13 @@ one readable machine alias and reuses it for later projects.`,
   .action(async (projectPath: string, options, command: Command) => {
     const home = homeFor(command);
     const detection = await detectProject(projectPath);
+    await ensureWizardDependency("caddy", command);
     const features = await chooseSetupFeatures(detection, options.features, command);
     const wantsDev = features.includes("dev");
     const wantsRemote = features.includes("remote");
     const wantsHttps = features.includes("https");
     const explicitRun = normalizeRunCommand(options.run);
+    if (wantsRemote) await ensureWizardDependency("cloudflared", command);
 
     const initialized = await initializeHome(home);
     let config = initialized.config;
@@ -691,9 +713,6 @@ one readable machine alias and reuses it for later projects.`,
     }
 
     const caddy = await rebuildRoutes(home, config);
-    if ((wantsHttps || wantsRemote) && !commandExists("caddy")) {
-      throw new UnlocalhostError(dependencyHelp("caddy"));
-    }
     if (wantsHttps || wantsRemote) {
       await validateCaddyfile(home);
       // Installation is idempotent and also retires a conflicting pre-rename
@@ -703,9 +722,6 @@ one readable machine alias and reuses it for later projects.`,
 
     let tunnelResult: Record<string, unknown> | null = null;
     if (wantsRemote) {
-      if (!commandExists("cloudflared")) {
-        throw new UnlocalhostError(dependencyHelp("cloudflared"));
-      }
       const publicProjects = await listProjects(home);
       const hostnames = projectPublicHostnames(config, publicProjects);
       let initializedTunnel: Awaited<ReturnType<typeof initializeTunnel>>;

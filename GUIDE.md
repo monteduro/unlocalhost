@@ -80,11 +80,12 @@ normally gitignored `public/hot` file when a managed Vite endpoint is active.
 
 ## Install and dependencies
 
-unlocalhost requires Node.js 22 or newer. Other dependencies are conditional:
+unlocalhost requires:
 
-- Caddy is required for local HTTPS and routing.
-- Docker Compose 2.24.4 or newer is required only for Compose projects.
-- cloudflared is required only for public tunnel access.
+- Node.js 22 or newer.
+- Caddy for every setup: both local and remote traffic is routed through it.
+- cloudflared only for public tunnel access.
+- Docker Compose 2.24.4 or newer only for projects that use Compose.
 
 On macOS:
 
@@ -92,6 +93,12 @@ On macOS:
 brew install caddy
 brew install cloudflared # only for public access
 ```
+
+Interactive setup offers to install a missing Caddy or cloudflared when
+Homebrew is already available, then continues automatically. It does not assume
+Homebrew is installed and never installs Homebrew itself. In non-interactive or
+JSON mode, and on systems without Homebrew, setup stops before changing its
+configuration and prints the official installation instructions.
 
 Install Docker Desktop only when Compose projects are used. On Linux and
 Windows, run `unlocalhost doctor`; missing dependency errors include the appropriate
@@ -104,7 +111,8 @@ npm install --global unlocalhost-cli@alpha
 ```
 
 That command installs the `unlocalhost` executable. Continue to the first local
-setup below; do not also run the source-build commands.
+setup below; it does not install Caddy, cloudflared, or Docker. Do not also run
+the source-build commands.
 
 Only contributors developing unlocalhost itself should clone this repository
 and use this alternative:

@@ -11,6 +11,9 @@ test("README states the remote-development purpose and links the full guide", as
   assert.match(readme, /Multiple machines stay independent/);
   assert.match(readme, /exact DNS\s+records to delete manually/);
   assert.match(readme, /npm install --global unlocalhost-cli@alpha/);
+  assert.match(readme, /Caddy, always/);
+  assert.match(readme, /npm package installs only the CLI/);
+  assert.match(readme, /never installs Homebrew or Docker/);
   assert.match(readme, /unlocalhost setup/);
   assert.match(readme, /What do you want to enable\?/);
   assert.match(readme, /--features https,dev,remote/);
@@ -27,6 +30,8 @@ test("the packaged guide covers operations, agents, and troubleshooting", async 
   const packageConfig = JSON.parse(packageJson) as { files?: string[] };
 
   assert.match(guide, /npm install --global unlocalhost-cli@alpha/);
+  assert.match(guide, /Caddy for every setup/);
+  assert.match(guide, /never installs Homebrew itself/);
   assert.match(guide, /one\s+Cloudflare Tunnel per machine/);
   assert.match(guide, /exact CNAME for every independently addressable public endpoint/);
   assert.match(guide, /prints every exact hostname as a\s+manual Cloudflare-dashboard action/);

@@ -109,18 +109,24 @@ test("setup feature parsing supports human aliases but requires a reachable endp
   assert.throws(() => parseSetupFeatures("magic"), /Unknown setup feature/);
 });
 
-test("non-interactive unknown stacks request --run and accept it without a port", async () => {
+test("non-interactive setup checks Caddy before writing state", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "unlocalhost-setup-custom-"));
   const home = path.join(root, "state");
+  const unknownHome = path.join(root, "unknown-state");
   const project = path.join(root, "custom-app");
+  const fakeBin = path.join(root, "bin");
   await fs.mkdir(project);
+  await fs.mkdir(fakeBin);
+  const fakeCaddy = path.join(fakeBin, "caddy");
+  await fs.writeFile(fakeCaddy, "#!/bin/sh\nexit 0\n");
+  await fs.chmod(fakeCaddy, 0o755);
   const cli = path.join(process.cwd(), "src", "cli.ts");
   const baseArgs = [
     "--import",
     "tsx",
     cli,
     "--home",
-    home,
+    unknownHome,
     "--yes",
     "setup",
     project,
@@ -128,14 +134,19 @@ test("non-interactive unknown stacks request --run and accept it without a port"
     "https",
     "--no-start",
   ];
-  const missing = spawnSync(process.execPath, baseArgs, { encoding: "utf8" });
+  const missing = spawnSync(process.execPath, baseArgs, {
+    encoding: "utf8",
+    env: { ...process.env, PATH: fakeBin },
+  });
   assert.equal(missing.status, 1);
   assert.match(missing.stderr, /No standard application command was detected/);
   assert.match(missing.stderr, /--run <command\.\.\.>/);
 
+  const configuredArgs = [...baseArgs, "--run", "node", "server.js"];
+  configuredArgs[4] = home;
   const configured = spawnSync(
     process.execPath,
-    [...baseArgs, "--run", "node", "server.js"],
+    configuredArgs,
     {
       encoding: "utf8",
       env: { ...process.env, PATH: "" },
@@ -143,13 +154,47 @@ test("non-interactive unknown stacks request --run and accept it without a port"
   );
   assert.equal(configured.status, 1);
   assert.match(configured.stderr, /Caddy is required but was not found/);
-  const registration = await fs.readFile(
-    path.join(home, "projects", "custom-app.toml"),
-    "utf8",
+  await assert.rejects(fs.access(home));
+});
+
+test("remote setup checks cloudflared before writing state", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "unlocalhost-setup-remote-dependency-"));
+  const home = path.join(root, "state");
+  const project = path.join(root, "remote-app");
+  const fakeBin = path.join(root, "bin");
+  await Promise.all([fs.mkdir(project), fs.mkdir(fakeBin)]);
+  const fakeCaddy = path.join(fakeBin, "caddy");
+  await fs.writeFile(fakeCaddy, "#!/bin/sh\nexit 0\n");
+  await fs.chmod(fakeCaddy, 0o755);
+
+  const configured = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      path.join(process.cwd(), "src", "cli.ts"),
+      "--home",
+      home,
+      "--yes",
+      "setup",
+      project,
+      "--features",
+      "https,remote",
+      "--domain",
+      "example.com",
+      "--machine",
+      "studio",
+      "--no-start",
+      "--run",
+      "node",
+      "server.js",
+    ],
+    { encoding: "utf8", env: { ...process.env, PATH: fakeBin } },
   );
-  assert.match(registration, /run_command = \[\s*"node", "server\.js"\s*\]/);
-  assert.match(registration, /dev_mode = true/);
-  assert.doesNotMatch(registration, /12000.*run_command/);
+
+  assert.equal(configured.status, 1);
+  assert.match(configured.stderr, /cloudflared is required for public tunnels but was not found/);
+  await assert.rejects(fs.access(home));
 });
 
 test("rm never calls Cloudflare and prints every DNS record for manual deletion", async () => {

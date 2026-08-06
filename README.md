@@ -48,9 +48,9 @@ automatically, and routes everything through one optional remote tunnel.
 Requirements:
 
 - Node.js 22 or newer.
-- Caddy for HTTPS and hostname routing.
-- Docker Compose 2.24.4 or newer only for Compose projects.
-- cloudflared only for remote access.
+- Caddy, always, for HTTPS and hostname routing.
+- cloudflared only when remote access is enabled.
+- Docker Compose 2.24.4 or newer only when the project uses Compose.
 
 ### Global installation
 
@@ -58,8 +58,8 @@ Requirements:
 npm install --global unlocalhost-cli@alpha
 ```
 
-This installs the `unlocalhost` command. Use the explicit `@alpha` tag until the
-first stable release.
+This installs the `unlocalhost` command. Use the explicit `@alpha` tag until the first stable release.
+The npm package installs only the CLI; it does not install Caddy, cloudflared, or Docker.
 
 ### From source
 
@@ -71,8 +71,8 @@ npm run build
 npm link
 ```
 
-Missing optional dependencies fail with platform-specific installation
-instructions. Run `unlocalhost doctor` at any time.
+During interactive setup, unlocalhost can install a missing Caddy or cloudflared through Homebrew when available. Otherwise it stops before changing its configuration and prints the official instructions.
+It never installs Homebrew or Docker. Run `unlocalhost doctor` at any time.
 
 ## Quick start
 
