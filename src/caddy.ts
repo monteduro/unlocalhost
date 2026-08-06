@@ -30,6 +30,7 @@ function reverseProxyLines(
   indent: string,
   forwardedProto?: "https",
   publicRoute = false,
+  originOverride?: string,
 ): string[] {
   const options = [
     ...(forwardedProto
@@ -38,7 +39,8 @@ function reverseProxyLines(
           `${indent}\theader_up X-Forwarded-Port 443`,
         ]
       : []),
-    ...(endpoint.id === "vite"
+    ...(originOverride ? [`${indent}\theader_up Origin ${originOverride}`] : []),
+    ...(endpoint.id === "vite" || endpoint.dev_server === "vite"
       ? [`${indent}\theader_up Host ${endpoint.upstream.host}:${endpoint.upstream.port}`]
       : []),
     ...(publicRoute && (endpoint.dev_mode || endpoint.run_command)
@@ -70,7 +72,28 @@ function routeBlock(
   corsOrigin?: string,
   multiplexedVite?: ResolvedEndpoint,
   publicRoute = false,
+  publicOrigin?: string,
 ): string {
+  // Next.js 16 rejects its dev-only assets and HMR socket when their Origin is
+  // a remote hostname. Normalize only same-origin Next internals, so unrelated
+  // app requests keep their real Origin and cross-origin requests stay blocked.
+  const rewriteNextDevOrigin = Boolean(
+    publicRoute &&
+      publicOrigin &&
+      (endpoint.dev_server === "next" ||
+        (endpoint.dev_server === undefined && (endpoint.dev_mode || endpoint.run_command))),
+  );
+  const nextDevOriginRoute = rewriteNextDevOrigin
+    ? [
+        "\t@unlocalhost_next_dev_same_origin {",
+        "\t\tpath /_next/* /__nextjs*",
+        `\t\theader Origin ${publicOrigin}`,
+        "\t}",
+        "\thandle @unlocalhost_next_dev_same_origin {",
+        ...reverseProxyLines(endpoint, "\t\t", forwardedProto, publicRoute, "http://localhost"),
+        "\t}",
+      ]
+    : [];
   const proxy = multiplexedVite
     ? [
         "\t@unlocalhost_vite_websocket {",
@@ -85,11 +108,19 @@ function routeBlock(
         "\thandle @unlocalhost_vite_assets {",
         ...reverseProxyLines(multiplexedVite, "\t\t", forwardedProto, publicRoute),
         "\t}",
+        ...nextDevOriginRoute,
         "\thandle {",
         ...reverseProxyLines(endpoint, "\t\t", forwardedProto, publicRoute),
         "\t}",
       ]
-    : reverseProxyLines(endpoint, "\t", forwardedProto, publicRoute);
+    : rewriteNextDevOrigin
+      ? [
+          ...nextDevOriginRoute,
+          "\thandle {",
+          ...reverseProxyLines(endpoint, "\t\t", forwardedProto, publicRoute),
+          "\t}",
+        ]
+      : reverseProxyLines(endpoint, "\t", forwardedProto, publicRoute);
   const lines = [
     `# ${routeMarker(project, endpoint)}`,
     `${addresses.join(", ")} {`,
@@ -166,6 +197,7 @@ export function generateCaddyfile(config: GlobalConfig, projects: ProjectConfig[
             vitePublicOrigin,
             endpoint.primary ? multiplexedVite : undefined,
             true,
+            endpointRemoteUrl,
           ),
         );
       }

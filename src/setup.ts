@@ -4,9 +4,10 @@ import path from "node:path";
 import { UnlocalhostError } from "./errors.js";
 import { exists } from "./files.js";
 import type { ComposeCandidate } from "./compose-discovery.js";
+import type { DevServerKind } from "./types.js";
 
 export type SetupFeature = "https" | "dev" | "remote";
-export type DevServerKind = "vite" | "next" | "generic";
+export type { DevServerKind } from "./types.js";
 export type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
 export type FrameworkKind = "laravel";
 
@@ -308,14 +309,13 @@ export function devServerInstructions(
     }
     return [
       {
-        level: "action",
-        title: "Verify the existing Vite configuration",
+        level: "info",
+        title: "Vite development endpoint configured",
         lines: [
           `Endpoint: ${values.publicUrl ?? values.localUrl}`,
-          "Use UNLOCALHOST_URL as server.origin and VITE_PORT (or PORT) as server.port; do not hardcode the allocated port.",
           `Allowed endpoint hosts: ${endpointUrls.map((value) => new URL(value).hostname).join(", ")}.`,
-          "Use UNLOCALHOST_WS_URL for proxied HMR when the current configuration announces localhost.",
-          "Caddy serves development assets and HMR through the application origin, so no cross-origin CORS or Caddy change is required inside the project.",
+          "unlocalhost adapts the upstream Host and proxies assets and HMR through the application origin.",
+          "No server.allowedHosts, server.origin, HMR hostname, or Caddy setting needs to be hardcoded in the project.",
         ],
       },
     ];
@@ -324,10 +324,11 @@ export function devServerInstructions(
     return [
       {
         level: "info",
-        title: "Next.js development origin",
+        title: "Next.js development endpoint configured",
         lines: [
           `Endpoint: ${values.publicUrl ?? values.localUrl}`,
-          "If Next.js reports a development-origin warning, add this exact hostname to allowedDevOrigins in next.config.js.",
+          "unlocalhost normalizes same-origin Next.js development assets and HMR at the proxy boundary.",
+          "No allowedDevOrigins or Caddy setting needs to be hardcoded in the project.",
         ],
       },
     ];

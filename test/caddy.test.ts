@@ -123,6 +123,14 @@ test("dev cache bypass headers are limited to public tunnel routes", () => {
   assert.match(publicRoute, /header_down Surrogate-Control "no-store"/);
   assert.match(publicRoute, /header_down CDN-Cache-Control "no-store"/);
   assert.match(publicRoute, /header_down Cloudflare-CDN-Cache-Control "no-store"/);
+  assert.match(
+    publicRoute,
+    /@unlocalhost_next_dev_same_origin \{[\s\S]*?path \/_next\/\* \/__nextjs\*[\s\S]*?header Origin https:\/\/dev-app-studio\.dev\.example\.com/,
+  );
+  assert.match(
+    publicRoute,
+    /handle @unlocalhost_next_dev_same_origin \{[\s\S]*?header_up Origin http:\/\/localhost/,
+  );
 });
 
 test("managed commands bypass public edge caching without changing production-like routes", () => {
@@ -151,5 +159,28 @@ test("managed commands bypass public edge caching without changing production-li
   );
 
   assert.match(runnerRoute, /header_down Cloudflare-CDN-Cache-Control "no-store"/);
+  assert.match(runnerRoute, /header_up Origin http:\/\/localhost/);
   assert.doesNotMatch(releaseRoute, /header_down .*Cache-Control/);
+  assert.doesNotMatch(releaseRoute, /unlocalhost_next_dev_same_origin/);
+});
+
+test("primary Vite routes receive a loopback Host without project allowedHosts changes", () => {
+  const source = generateCaddyfile(
+    { ...DEFAULT_CONFIG, public_domain: "dev.example.com", machine_alias: "studio" },
+    [
+      {
+        ...projects[1]!,
+        id: "vite-app",
+        slug: "vite-app",
+        dev_mode: true,
+        dev_server: "vite",
+      },
+    ],
+  );
+  const publicRoute = source.slice(
+    source.indexOf("http://vite-app-studio.dev.example.com:8080"),
+  );
+
+  assert.match(publicRoute, /header_up Host 127\.0\.0\.1:18082/);
+  assert.doesNotMatch(publicRoute, /unlocalhost_next_dev_same_origin/);
 });

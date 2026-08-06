@@ -6,7 +6,7 @@ import { parse, stringify } from "smol-toml";
 import { UnlocalhostError } from "./errors.js";
 import { ensureDir, exists, writeAtomic } from "./files.js";
 import { pathsFor } from "./paths.js";
-import type { EndpointConfig, GlobalConfig, ProjectConfig } from "./types.js";
+import type { DevServerKind, EndpointConfig, GlobalConfig, ProjectConfig } from "./types.js";
 
 export const DEFAULT_CONFIG: GlobalConfig = {
   default_projects_root: "~/Sites",
@@ -137,6 +137,14 @@ function validCommand(value: unknown, name: string): string[] | undefined {
     throw new UnlocalhostError(`Invalid ${name}: expected a non-empty command array`);
   }
   return value as string[];
+}
+
+function validDevServer(value: unknown, name: string): DevServerKind | undefined {
+  if (value === undefined) return undefined;
+  if (value !== "vite" && value !== "next" && value !== "generic") {
+    throw new UnlocalhostError(`Invalid ${name}: expected vite, next, or generic`);
+  }
+  return value;
 }
 
 function validComposeServices(value: unknown, name: string): string[] | undefined {
@@ -270,6 +278,11 @@ export function parseProject(source: string, filename = "project"): ProjectConfi
       }
       parsed.dev_mode = endpoint.dev_mode;
     }
+    const devServer = validDevServer(
+      endpoint.dev_server,
+      `${filename}.endpoints[${index}].dev_server`,
+    );
+    if (devServer) parsed.dev_server = devServer;
     const runCommand = validCommand(
       endpoint.run_command,
       `${filename}.endpoints[${index}].run_command`,
@@ -313,6 +326,8 @@ export function parseProject(source: string, filename = "project"): ProjectConfi
     }
     project.dev_mode = value.dev_mode;
   }
+  const devServer = validDevServer(value.dev_server, `${filename}.dev_server`);
+  if (devServer) project.dev_server = devServer;
   if (project.upstream.host !== "127.0.0.1" && project.upstream.host !== "localhost") {
     throw new UnlocalhostError(
       `${filename}.upstream.host: v1 accepts only 127.0.0.1 or localhost`,
@@ -382,6 +397,7 @@ export function serializeProject(project: ProjectConfig): string {
     top.public_enabled = project.public_enabled;
   }
   if (project.dev_mode !== undefined) top.dev_mode = project.dev_mode;
+  if (project.dev_server) top.dev_server = project.dev_server;
   if (project.compose_file) top.compose_file = project.compose_file;
   if (project.compose_override) top.compose_override = project.compose_override;
   if (project.compose_port_services !== undefined) {

@@ -1,5 +1,7 @@
 export const STATUS_SCHEMA_VERSION = 1;
 
+export type DevServerKind = "vite" | "next" | "generic";
+
 export interface GlobalConfig {
   default_projects_root: string;
   caddy_http_port: number;
@@ -25,6 +27,7 @@ export interface EndpointConfig {
   slug: string;
   /** Development responses bypass shared caches on the public tunnel route. */
   dev_mode?: boolean;
+  dev_server?: DevServerKind;
   run_command?: string[];
   compose_service?: string;
   container_port?: number;
@@ -45,6 +48,7 @@ export interface ProjectConfig {
   public_enabled?: boolean;
   /** Development responses bypass shared caches on the public tunnel route. */
   dev_mode?: boolean;
+  dev_server?: DevServerKind;
   compose_file?: string;
   compose_override?: string;
   compose_port_services?: string[];

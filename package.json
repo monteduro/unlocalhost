@@ -1,6 +1,6 @@
 {
   "name": "unlocalhost-cli",
-  "version": "0.1.0-alpha.4",
+  "version": "0.1.0-alpha.8",
   "description": "Develop on your own machine from anywhere, without deploying your local environment.",
   "type": "module",
   "bin": {

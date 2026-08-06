@@ -7,7 +7,7 @@ import { assertInside, exists, writeAtomic } from "./files.js";
 import { pathsFor } from "./paths.js";
 import { allocatePort } from "./ports.js";
 import { stopEndpointRunner, stopProjectRunners } from "./runner.js";
-import type { EndpointConfig, ProjectConfig } from "./types.js";
+import type { DevServerKind, EndpointConfig, ProjectConfig } from "./types.js";
 
 const SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
@@ -89,6 +89,7 @@ export interface AddProjectOptions {
   run?: string[];
   public?: boolean;
   dev?: boolean;
+  devServer?: DevServerKind;
 }
 
 export interface AddEndpointOptions {
@@ -100,6 +101,7 @@ export interface AddEndpointOptions {
   containerPort?: number;
   run?: string[];
   dev?: boolean;
+  devServer?: DevServerKind;
 }
 
 function validateComposeService(service: string): string {
@@ -252,7 +254,8 @@ async function addProjectUnlocked(
     slug,
     enabled: true,
     public_enabled: options.public ?? true,
-    ...((options.dev || options.run) ? { dev_mode: true } : {}),
+    ...((options.dev || options.run || options.devServer) ? { dev_mode: true } : {}),
+    ...(options.devServer ? { dev_server: options.devServer } : {}),
     endpoints: [],
     upstream: {
       mode: "host_port",
@@ -358,7 +361,8 @@ async function addEndpointUnlocked(
   const endpoint: EndpointConfig = {
     id,
     slug,
-    ...((options.dev || options.run) ? { dev_mode: true } : {}),
+    ...((options.dev || options.run || options.devServer) ? { dev_mode: true } : {}),
+    ...(options.devServer ? { dev_server: options.devServer } : {}),
     upstream: { mode: "host_port", host, port: selectedPort },
   };
   if (options.run) endpoint.run_command = options.run;
@@ -472,6 +476,28 @@ export async function setEndpointDevMode(
       throw new UnlocalhostError(`Endpoint "${id}" is not registered in project "${project.id}"`);
     }
     endpoint.dev_mode = enabled;
+  }
+  await saveProject(home, project);
+}
+
+export async function setEndpointDevServer(
+  home: string,
+  projectId: string,
+  endpointId: string,
+  kind: DevServerKind,
+): Promise<void> {
+  const project = await getProject(home, projectId);
+  const id = validateSlug(endpointId);
+  if (id === "web") {
+    project.dev_server = kind;
+    project.dev_mode = true;
+  } else {
+    const endpoint = project.endpoints.find((candidate) => candidate.id === id);
+    if (!endpoint) {
+      throw new UnlocalhostError(`Endpoint "${id}" is not registered in project "${project.id}"`);
+    }
+    endpoint.dev_server = kind;
+    endpoint.dev_mode = true;
   }
   await saveProject(home, project);
 }

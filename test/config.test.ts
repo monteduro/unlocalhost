@@ -37,11 +37,13 @@ test("project config round-trips through TOML", () => {
     slug: "alpha",
     enabled: true,
     dev_mode: true,
+    dev_server: "vite",
     endpoints: [
       {
         id: "api",
         slug: "alpha-api",
         dev_mode: true,
+        dev_server: "generic",
         upstream: { mode: "host_port", host: "127.0.0.1", port: 18082 },
       },
     ],
@@ -118,6 +120,24 @@ host = "host.docker.internal"
 port = 8080
 `),
     /accepts only 127\.0\.0\.1 or localhost/,
+  );
+});
+
+test("configuration rejects unknown development server kinds", () => {
+  assert.throws(
+    () =>
+      parseProject(`
+id = "alpha"
+name = "Alpha"
+path = "/tmp/alpha"
+slug = "alpha"
+dev_server = "webpack"
+[upstream]
+mode = "host_port"
+host = "127.0.0.1"
+port = 8080
+`),
+    /expected vite, next, or generic/,
   );
 });
 

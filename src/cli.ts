@@ -51,6 +51,7 @@ import {
   removeProject,
   setEndpointCommand,
   setEndpointDevMode,
+  setEndpointDevServer,
   setProjectPublicEnabled,
 } from "./registry.js";
 import {
@@ -476,7 +477,7 @@ const program = new Command();
 program
   .name("unlocalhost")
   .description("Develop on your own machine from anywhere.")
-  .version("0.1.0-alpha.4")
+  .version("0.1.0-alpha.6")
   .option("--home <path>", "state directory (default: UNLOCALHOST_HOME or ~/.unlocalhost)")
   .option("--json", "emit machine-readable JSON where supported")
   .option("--yes", "accept non-interactive defaults")
@@ -647,6 +648,9 @@ one readable machine alias and reuses it for later projects.`,
           name: options.name,
           run: managedCommand,
           public: wantsRemote,
+          ...(wantsDev && detection.devServer
+            ? { devServer: detection.devServer }
+            : {}),
         });
       }
     } else {
@@ -659,6 +663,9 @@ one readable machine alias and reuses it for later projects.`,
 
     if (wantsDev) {
       await setEndpointDevMode(home, project.id, "web", true);
+      if (detection.devServer && (!project.compose_file || detection.devServer !== "vite")) {
+        await setEndpointDevServer(home, project.id, "web", detection.devServer);
+      }
       project = await getProject(home, project.id);
     }
 
@@ -674,6 +681,8 @@ one readable machine alias and reuses it for later projects.`,
         /vite/i.test(primaryCandidate.service);
       if (primaryIsDevServer) {
         devEndpointId = "web";
+        await setEndpointDevServer(home, project.id, devEndpointId, "vite");
+        project = await getProject(home, project.id);
       } else {
         const endpointId = "vite";
         const existingEndpoint = getEndpoint(project, endpointId);
@@ -696,16 +705,19 @@ one readable machine alias and reuses it for later projects.`,
               service: composeCandidate.service,
               containerPort: composeCandidate.containerPort,
               dev: true,
+              devServer: "vite",
             });
           } else if (managedCommand) {
             await addEndpoint(home, project.id, {
               id: endpointId,
               slug: composeEndpointSlug(project.slug, endpointId),
               run: managedCommand,
+              devServer: "vite",
             });
           }
         } else {
           await setEndpointDevMode(home, project.id, endpointId, true);
+          await setEndpointDevServer(home, project.id, endpointId, "vite");
         }
         devEndpointId = endpointId;
         project = await getProject(home, project.id);

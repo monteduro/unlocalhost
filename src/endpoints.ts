@@ -10,6 +10,7 @@ export function projectEndpoints(project: ProjectConfig): ResolvedEndpoint[] {
       id: "web",
       slug: project.slug,
       ...((project.dev_mode || project.run_command) ? { dev_mode: true } : {}),
+      ...(project.dev_server ? { dev_server: project.dev_server } : {}),
       ...(project.run_command ? { run_command: project.run_command } : {}),
       ...(project.compose_service
         ? {

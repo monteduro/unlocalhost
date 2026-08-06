@@ -11,6 +11,7 @@ import {
   getProject,
   removeEndpoint,
   setEndpointCommand,
+  setEndpointDevServer,
 } from "../src/registry.js";
 
 test("secondary endpoints are grouped under one project and persist", async () => {
@@ -120,4 +121,29 @@ test("explicit dev mode persists for Compose endpoints while unmarked routes sta
   const managed = await getProject(home, release.id);
   assert.equal(managed.endpoints[0]?.dev_mode, true);
   assert.deepEqual(managed.endpoints[0]?.run_command, ["npm", "run", "preview"]);
+});
+
+test("development server kind persists on primary and secondary endpoints", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "unlocalhost-dev-server-"));
+  const home = path.join(root, "state");
+  const projectPath = path.join(root, "app");
+  await fs.mkdir(projectPath);
+  await initializeHome(home);
+  await addProject(home, {
+    path: projectPath,
+    slug: "vite-app",
+    port: 13000,
+    dev: true,
+    devServer: "vite",
+  });
+  await addEndpoint(home, "vite-app", {
+    id: "preview",
+    port: 13001,
+    dev: true,
+  });
+  await setEndpointDevServer(home, "vite-app", "preview", "generic");
+
+  const stored = await getProject(home, "vite-app");
+  assert.equal(projectEndpoints(stored)[0]?.dev_server, "vite");
+  assert.equal(projectEndpoints(stored)[1]?.dev_server, "generic");
 });
