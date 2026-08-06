@@ -16,6 +16,7 @@ import {
   managedStaticCommand,
   parseSetupFeatures,
   rankedHttpCandidates,
+  shouldPromptForRunCommand,
 } from "../src/setup.js";
 
 test("setup serves a static public directory without asking for a command", async () => {
@@ -40,6 +41,16 @@ test("setup serves a static public directory without asking for a command", asyn
     "--port",
     "{port}",
   ]);
+});
+
+test("setup does not request a host command for a Compose-managed development server", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "unlocalhost-setup-compose-dev-"));
+  await fs.writeFile(path.join(root, "compose.yml"), "services:\n  app:\n    image: example/app\n");
+
+  const detected = await detectProject(root);
+  assert.equal(detected.composeFile, "compose.yml");
+  assert.equal(detected.devCommand, null);
+  assert.equal(shouldPromptForRunCommand(detected, false, false, true), false);
 });
 
 test("setup detects a Docker-free Next.js dev command", async () => {

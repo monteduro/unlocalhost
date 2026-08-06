@@ -155,6 +155,23 @@ export function defaultSetupFeatures(detection: ProjectDetection): SetupFeature[
   return detection.devCommand ? ["https", "dev"] : ["https"];
 }
 
+export function shouldPromptForRunCommand(
+  detection: ProjectDetection,
+  projectRegistered: boolean,
+  existingManagedProcess: boolean,
+  wantsDev: boolean,
+): boolean {
+  if (
+    detection.composeFile ||
+    detection.devCommand ||
+    detection.staticRoot ||
+    existingManagedProcess
+  ) {
+    return false;
+  }
+  return !projectRegistered || wantsDev;
+}
+
 export function parseSetupFeatures(value: string): SetupFeature[] {
   const aliases: Record<string, SetupFeature> = {
     https: "https",

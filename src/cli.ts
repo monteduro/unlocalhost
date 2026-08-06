@@ -81,6 +81,7 @@ import {
   managedStaticCommand,
   parseSetupFeatures,
   rankedHttpCandidates,
+  shouldPromptForRunCommand,
   type ProjectDetection,
   type SetupFeature,
 } from "./setup.js";
@@ -610,10 +611,12 @@ one readable machine alias and reuses it for later projects.`,
     let requestedRun = explicitRun;
     if (
       !requestedRun &&
-      !detection.devCommand &&
-      !detection.staticRoot &&
-      !existingManagedProcess &&
-      ((!project && !detection.composeFile) || wantsDev)
+      shouldPromptForRunCommand(
+        detection,
+        Boolean(project),
+        existingManagedProcess,
+        wantsDev,
+      )
     ) {
       requestedRun = await promptForRunCommand(
         command,
