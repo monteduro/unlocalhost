@@ -1,6 +1,6 @@
 # unlocalhost
 
-![How unlocalhost makes a local development server available remotely](docs/assets/unlocalhost-overview.jpeg)
+![How unlocalhost makes a local development server available remotely](docs/assets/unlocalhost-overview-v2.jpeg)
 
 [![npm alpha](https://img.shields.io/npm/v/unlocalhost-cli/alpha?label=npm%20alpha&logo=npm)](https://www.npmjs.com/package/unlocalhost-cli)
 [![npm downloads](https://img.shields.io/npm/dm/unlocalhost-cli?logo=npm)](https://www.npmjs.com/package/unlocalhost-cli)
