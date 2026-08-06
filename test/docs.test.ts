@@ -3,14 +3,21 @@ import fs from "node:fs/promises";
 import test from "node:test";
 
 test("README states the remote-development purpose and links the full guide", async () => {
-  const readme = await fs.readFile("README.md", "utf8");
+  const [readme, overview] = await Promise.all([
+    fs.readFile("README.md", "utf8"),
+    fs.readFile("docs/assets/unlocalhost-overview.png"),
+  ]);
 
+  assert.match(readme, /docs\/assets\/unlocalhost-overview\.png/);
+  assert.deepEqual([...overview.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   assert.match(readme, /Develop locally\. Work from anywhere\./);
   assert.match(readme, /Nothing is deployed\./);
   assert.match(readme, /one optional tunnel serve every project on a machine/);
   assert.match(readme, /Multiple machines stay independent/);
   assert.match(readme, /exact DNS\s+records to delete manually/);
   assert.match(readme, /npm install --global unlocalhost-cli@alpha/);
+  assert.match(readme, /npmjs\.com\/package\/unlocalhost-cli/);
+  assert.match(readme, /github\.com\/monteduro\/unlocalhost\/tags/);
   assert.match(readme, /Caddy, always/);
   assert.match(readme, /npm package installs only the CLI/);
   assert.match(readme, /never installs Homebrew or Docker/);

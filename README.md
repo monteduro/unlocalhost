@@ -1,5 +1,11 @@
 # unlocalhost
 
+![How unlocalhost makes a local development server available remotely](docs/assets/unlocalhost-overview.png)
+
+[![npm alpha](https://img.shields.io/npm/v/unlocalhost-cli/alpha?label=npm%20alpha&logo=npm)](https://www.npmjs.com/package/unlocalhost-cli)
+[![npm downloads](https://img.shields.io/npm/dm/unlocalhost-cli?logo=npm)](https://www.npmjs.com/package/unlocalhost-cli)
+[![license](https://img.shields.io/github/license/monteduro/unlocalhost)](LICENSE)
+
 **Develop locally. Work from anywhere.**
 
 unlocalhost makes your local development environment reachable through stable
@@ -7,20 +13,8 @@ HTTPS URLs. Code, containers, databases, volumes, and dev servers stay local. No
 
 > Alpha software. Expect sharp edges and interface changes.
 
-```text
-Remote browser or coding agent
-                │
-                │ HTTPS
-                ▼
-       one Cloudflare Tunnel (optional)
-                │
-                ▼
-          one Caddy proxy
-        ┌───────┼────────┐
-        ▼       ▼        ▼
-      app A   app B    Vite/HMR
-          on your machine
-```
+The CLI is published on npm as [`unlocalhost-cli`](https://www.npmjs.com/package/unlocalhost-cli).
+Prereleases use the `alpha` dist-tag, with matching source versions under [GitHub tags](https://github.com/monteduro/unlocalhost/tags).
 
 ## The problem it solves
 
@@ -60,6 +54,8 @@ npm install --global unlocalhost-cli@alpha
 
 This installs the `unlocalhost` command. Use the explicit `@alpha` tag until the first stable release.
 The npm package installs only the CLI; it does not install Caddy, cloudflared, or Docker.
+
+The same command upgrades an existing installation; verify it with `unlocalhost --version`.
 
 ### From source
 
