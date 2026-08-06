@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createRequire } from "node:module";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import {
@@ -96,6 +97,10 @@ import {
   publicUrl,
 } from "./urls.js";
 import type { GlobalConfig, ProjectConfig } from "./types.js";
+
+const packageVersion = (
+  createRequire(import.meta.url)("../package.json") as { version: string }
+).version;
 
 interface GlobalOptions {
   home?: string;
@@ -477,7 +482,7 @@ const program = new Command();
 program
   .name("unlocalhost")
   .description("Develop on your own machine from anywhere.")
-  .version("0.1.0-alpha.6")
+  .version(packageVersion)
   .option("--home <path>", "state directory (default: UNLOCALHOST_HOME or ~/.unlocalhost)")
   .option("--json", "emit machine-readable JSON where supported")
   .option("--yes", "accept non-interactive defaults")

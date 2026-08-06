@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
@@ -17,6 +18,14 @@ function runHelp(args: string[]): string {
   assert.equal(result.status, 0, result.stderr);
   return result.stdout;
 }
+
+test("CLI version always matches the package version", () => {
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
+  ) as { version: string };
+
+  assert.equal(runHelp(["--version"]).trim(), packageJson.version);
+});
 
 test("root help exposes setup as the primary human and agent workflow", () => {
   const output = runHelp(["--help"]);
