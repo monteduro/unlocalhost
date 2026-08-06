@@ -43,7 +43,7 @@ function reverseProxyLines(
       : []),
     ...(publicRoute && (endpoint.dev_mode || endpoint.run_command)
       ? [
-          `${indent}\theader_down Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"`,
+          `${indent}\theader_down Cache-Control "private, no-cache, must-revalidate, max-age=0"`,
           `${indent}\theader_down Pragma "no-cache"`,
           `${indent}\theader_down Expires "0"`,
           `${indent}\theader_down Surrogate-Control "no-store"`,

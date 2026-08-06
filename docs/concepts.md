@@ -87,11 +87,12 @@ request. Adding a public project creates its exact DNS route automatically. If
 the tunnel stops, this remote path disappears but the local browser-to-Caddy
 path is unchanged.
 
-Development endpoints add cache-bypass response headers at the final Caddy
-reverse proxy only on this public HTTP route. Managed commands are development
-endpoints automatically; Compose or externally managed upstreams opt in with
-their stored `dev_mode`. Unmarked production-like endpoints preserve the
-upstream caching policy, and local `.localhost` routes are never rewritten.
+Development endpoints add edge-cache bypass and browser-revalidation response
+headers at the final Caddy reverse proxy only on this public HTTP route. Managed
+commands are development endpoints automatically; Compose or externally managed
+upstreams opt in with their stored `dev_mode`. Unmarked production-like
+endpoints preserve the upstream caching policy, and local `.localhost` routes
+are never rewritten.
 
 ## Lifecycle ownership
 

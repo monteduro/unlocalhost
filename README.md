@@ -40,7 +40,7 @@ automatically, and routes everything through one optional remote tunnel.
 - Generated overrides and state stay outside project repositories.
 - One Caddy instance and one optional tunnel serve every project on a machine.
 - Multiple machines stay independent through exact, machine-qualified DNS records.
-- Public development responses bypass browser and Cloudflare edge caches; unmarked production-like routes keep their upstream cache policy.
+- Public development responses bypass edge caches while browsers revalidate private copies; production-like routes keep their upstream policy.
 - Humans and coding agents share the same non-interactive CLI and JSON status.
 
 ## Installation

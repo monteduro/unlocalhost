@@ -87,6 +87,13 @@ Compose projects, Linux service supervision, and agent workflows.
 
 ## Alpha release notes
 
+### unlocalhost 0.1.0-alpha.3
+
+- Keep Cloudflare and other shared caches disabled for development endpoints
+  while allowing browsers to retain private copies with mandatory revalidation.
+- Reuse unchanged assets through conditional requests without risking stale
+  development bundles.
+
 ### unlocalhost 0.1.0-alpha.2
 
 - Prevent Cloudflare from edge-caching public responses for development

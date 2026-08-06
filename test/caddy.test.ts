@@ -115,8 +115,9 @@ test("dev cache bypass headers are limited to public tunnel routes", () => {
   assert.doesNotMatch(localHttps, /Cache-Control/);
   assert.match(
     publicRoute,
-    /header_down Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"/,
+    /header_down Cache-Control "private, no-cache, must-revalidate, max-age=0"/,
   );
+  assert.doesNotMatch(publicRoute, /header_down Cache-Control "[^"]*no-store/);
   assert.match(publicRoute, /header_down Pragma "no-cache"/);
   assert.match(publicRoute, /header_down Expires "0"/);
   assert.match(publicRoute, /header_down Surrogate-Control "no-store"/);

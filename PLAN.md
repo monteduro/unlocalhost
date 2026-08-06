@@ -153,7 +153,7 @@ Defer “auto join docker network + route to service name” to v2 if needed.
 - Each site: hostname(s) → `reverse_proxy host:port`.
 - Local HTTPS: `https://<slug>.localhost` (Caddy local CA / automatic HTTPS for localhost).
 - Public: `<slug>-<machine_alias>.<public_domain>` works when the endpoint's exact CNAME and that machine's tunnel exist; Caddy routes the Host when it arrives from the tunnel.
-- Public development routes replace downstream cache headers with `no-store` directives for browsers, shared CDNs, and Cloudflare. Local routes and unmarked production-like endpoints preserve upstream headers.
+- Public development routes use `no-store` for shared CDNs and private mandatory revalidation for browser copies. Local routes and unmarked production-like endpoints preserve upstream headers.
 
 Regenerate + `caddy reload` on add/rm/up/down that changes routes.
 

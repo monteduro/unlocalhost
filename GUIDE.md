@@ -264,11 +264,14 @@ unlocalhost add "$PWD" --slug my-app --services web:3000 --dev
 unlocalhost endpoint add my-app api --port 4000 --dev
 ```
 
-On the public tunnel route, Caddy replaces downstream cache headers with
-`no-store` directives understood by browsers, shared CDNs, and Cloudflare. The
-local `.localhost` route is left unchanged. Raw-port and Compose registrations
-without `--dev` retain their upstream cache policy, so production-like static
-or release artifacts can still be cached normally.
+On the public tunnel route, Caddy separates browser and shared-cache policy.
+Cloudflare and other CDNs receive `no-store`; browsers receive `private,
+no-cache` so they may keep a local copy but must revalidate it before every
+reuse. An unchanged asset can therefore return `304 Not Modified` instead of
+being downloaded again, without allowing a stale bundle. The local `.localhost`
+route is left unchanged. Raw-port and Compose registrations without `--dev`
+retain their upstream cache policy, so production-like static or release
+artifacts can still be cached normally.
 
 ### Interactive authentication
 
