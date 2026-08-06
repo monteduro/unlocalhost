@@ -29,6 +29,25 @@ export interface SetupInstruction {
   lines: string[];
 }
 
+function detectDevServerKind(
+  dependencies: Record<string, unknown>,
+  devScript: string | null,
+): DevServerKind | null {
+  if ("next" in dependencies || /(?:^|\s)next(?:\s|$)/.test(devScript ?? "")) {
+    return "next";
+  }
+  if ("vite" in dependencies || /(?:^|\s)vite(?:\s|$)/.test(devScript ?? "")) {
+    return "vite";
+  }
+  if ("@angular/cli" in dependencies || /(?:^|\s)ng\s+serve(?:\s|$)/.test(devScript ?? "")) {
+    return "angular";
+  }
+  if ("astro" in dependencies || /(?:^|\s)astro\s+dev(?:\s|$)/.test(devScript ?? "")) {
+    return "astro";
+  }
+  return devScript ? "generic" : null;
+}
+
 const COMPOSE_FILES = [
   "compose.yml",
   "compose.yaml",
@@ -117,16 +136,7 @@ export async function detectProject(projectPath: string): Promise<ProjectDetecti
       ? (manifest.devDependencies as Record<string, unknown>)
       : {}),
   };
-  const devServer: DevServerKind | null =
-    "next" in dependencies || /(?:^|\s)next(?:\s|$)/.test(devScript ?? "")
-      ? "next"
-      : "vite" in dependencies || /(?:^|\s)vite(?:\s|$)/.test(devScript ?? "")
-        ? "vite"
-        : "@angular/cli" in dependencies || /(?:^|\s)ng\s+serve(?:\s|$)/.test(devScript ?? "")
-          ? "angular"
-        : devScript
-          ? "generic"
-          : null;
+  const devServer = detectDevServerKind(dependencies, devScript);
   const packageManager = await detectPackageManager(root, manifest.packageManager);
   return {
     path: root,
@@ -236,7 +246,7 @@ export function composeDevCandidate(
 
 export function managedDevCommand(detection: ProjectDetection): string[] | null {
   if (!detection.devCommand) return null;
-  if (detection.devServer === "angular") {
+  if (detection.devServer === "angular" || detection.devServer === "astro") {
     return [
       ...detection.devCommand,
       "--",
@@ -283,7 +293,8 @@ export async function hostDevDependenciesAvailable(
   if (
     detection.devServer === "vite" ||
     detection.devServer === "next" ||
-    detection.devServer === "angular"
+    detection.devServer === "angular" ||
+    detection.devServer === "astro"
   ) {
     const binary = detection.devServer === "angular" ? "ng" : detection.devServer;
     return await exists(
@@ -359,6 +370,19 @@ export function devServerInstructions(
           `Endpoint: ${values.publicUrl ?? values.localUrl}`,
           "unlocalhost adapts the upstream Host and proxies live reload through the application origin.",
           "No serve.allowedHosts or proxy setting needs to be hardcoded in angular.json.",
+        ],
+      },
+    ];
+  }
+  if (detection.devServer === "astro") {
+    return [
+      {
+        level: "info",
+        title: "Astro development endpoint configured",
+        lines: [
+          `Endpoint: ${values.publicUrl ?? values.localUrl}`,
+          "unlocalhost adapts the upstream Host and proxies Vite HMR through the application origin.",
+          "No server.allowedHosts or proxy setting needs to be hardcoded in astro.config.",
         ],
       },
     ];

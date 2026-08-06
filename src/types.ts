@@ -1,6 +1,6 @@
 export const STATUS_SCHEMA_VERSION = 1;
 
-export type DevServerKind = "vite" | "next" | "angular" | "generic";
+export type DevServerKind = "vite" | "next" | "angular" | "astro" | "generic";
 
 export interface GlobalConfig {
   default_projects_root: string;

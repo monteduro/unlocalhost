@@ -137,7 +137,7 @@ mode = "host_port"
 host = "127.0.0.1"
 port = 8080
 `),
-    /expected vite, next, angular, or generic/,
+    /expected vite, next, angular, astro, or generic/,
   );
 });
 

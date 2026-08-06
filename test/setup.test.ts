@@ -89,6 +89,33 @@ test("setup detects Angular and creates a port-independent development command",
   assert.equal(await hostDevDependenciesAvailable(detected), true);
 });
 
+test("setup detects Astro and creates a port-independent development command", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "unlocalhost-setup-astro-"));
+  await fs.mkdir(path.join(root, "node_modules", ".bin"), { recursive: true });
+  await fs.writeFile(path.join(root, "node_modules", ".bin", "astro"), "");
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      scripts: { dev: "astro dev" },
+      dependencies: { astro: "latest" },
+    }),
+  );
+
+  const detected = await detectProject(root);
+  assert.equal(detected.devServer, "astro");
+  assert.deepEqual(managedDevCommand(detected), [
+    "npm",
+    "run",
+    "dev",
+    "--",
+    "--host",
+    "{host}",
+    "--port",
+    "{port}",
+  ]);
+  assert.equal(await hostDevDependenciesAvailable(detected), true);
+});
+
 test("setup detects legacy Compose names and creates a port-independent Vite command", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "unlocalhost-setup-vite-"));
   await fs.writeFile(path.join(root, "docker-compose.yaml"), "services: {}\n");

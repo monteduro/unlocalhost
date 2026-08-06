@@ -141,8 +141,14 @@ function validCommand(value: unknown, name: string): string[] | undefined {
 
 function validDevServer(value: unknown, name: string): DevServerKind | undefined {
   if (value === undefined) return undefined;
-  if (value !== "vite" && value !== "next" && value !== "angular" && value !== "generic") {
-    throw new UnlocalhostError(`Invalid ${name}: expected vite, next, angular, or generic`);
+  if (
+    value !== "vite" &&
+    value !== "next" &&
+    value !== "angular" &&
+    value !== "astro" &&
+    value !== "generic"
+  ) {
+    throw new UnlocalhostError(`Invalid ${name}: expected vite, next, angular, astro, or generic`);
   }
   return value;
 }
