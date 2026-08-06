@@ -262,6 +262,14 @@ export function parseProject(source: string, filename = "project"): ProjectConfi
         ),
       },
     };
+    if (endpoint.dev_mode !== undefined) {
+      if (typeof endpoint.dev_mode !== "boolean") {
+        throw new UnlocalhostError(
+          `${filename}.endpoints[${index}].dev_mode: expected a boolean`,
+        );
+      }
+      parsed.dev_mode = endpoint.dev_mode;
+    }
     const runCommand = validCommand(
       endpoint.run_command,
       `${filename}.endpoints[${index}].run_command`,
@@ -298,6 +306,12 @@ export function parseProject(source: string, filename = "project"): ProjectConfi
   };
   if (typeof value.public_enabled === "boolean") {
     project.public_enabled = value.public_enabled;
+  }
+  if (value.dev_mode !== undefined) {
+    if (typeof value.dev_mode !== "boolean") {
+      throw new UnlocalhostError(`${filename}.dev_mode: expected a boolean`);
+    }
+    project.dev_mode = value.dev_mode;
   }
   if (project.upstream.host !== "127.0.0.1" && project.upstream.host !== "localhost") {
     throw new UnlocalhostError(
@@ -367,6 +381,7 @@ export function serializeProject(project: ProjectConfig): string {
   if (project.public_enabled !== undefined) {
     top.public_enabled = project.public_enabled;
   }
+  if (project.dev_mode !== undefined) top.dev_mode = project.dev_mode;
   if (project.compose_file) top.compose_file = project.compose_file;
   if (project.compose_override) top.compose_override = project.compose_override;
   if (project.compose_port_services !== undefined) {

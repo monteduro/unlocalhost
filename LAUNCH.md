@@ -48,8 +48,8 @@ Remote development without moving your development environment.
 **3/5**
 
 > One Caddy proxy gives every endpoint a stable HTTPS hostname. One optional
-> Cloudflare Tunnel exposes the wildcard remotely. Adding project number ten
-> does not mean creating tunnel number ten.
+> Cloudflare Tunnel exposes exact, machine-qualified endpoint hostnames
+> remotely. Adding project number ten does not mean creating tunnel number ten.
 
 **4/5**
 
@@ -76,7 +76,7 @@ sit in front of. Existing options usually meant deploying a copy, exposing one
 port at a time, or adding personal networking configuration to team repos.
 
 unlocalhost is a CLI that puts one Caddy proxy in front of all local projects
-and optionally connects it to one Cloudflare Tunnel with wildcard DNS. Compose
+and optionally connects it to one Cloudflare Tunnel with exact endpoint DNS. Compose
 overrides and allocated loopback ports live outside the projects, so several
 stacks can run simultaneously without modifying their repositories.
 
@@ -87,7 +87,21 @@ Compose projects, Linux service supervision, and agent workflows.
 
 ## Alpha release notes
 
-### unlocalhost 0.1.0-alpha.0
+### unlocalhost 0.1.0-alpha.2
+
+- Prevent Cloudflare from edge-caching public responses for development
+  endpoints while leaving local and production-like routes unchanged.
+- Classify managed commands as development automatically and let raw-port or
+  Compose registrations opt in explicitly with `--dev`.
+- Persist the endpoint policy as `dev_mode` in the external project registry.
+
+### unlocalhost 0.1.0-alpha.1
+
+- Add the goal-oriented `unlocalhost setup` wizard for new and existing projects.
+- Use exact, machine-qualified Cloudflare DNS records instead of a shared
+  wildcard for new remote configurations.
+
+### unlocalhost 0.1.0-alpha.0 (historical)
 
 - Register Compose and non-Compose projects without changing their repositories.
 - Allocate stable loopback ports and replace conflicting Compose publications

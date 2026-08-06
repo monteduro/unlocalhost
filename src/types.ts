@@ -23,6 +23,8 @@ export interface GlobalConfig {
 export interface EndpointConfig {
   id: string;
   slug: string;
+  /** Development responses bypass shared caches on the public tunnel route. */
+  dev_mode?: boolean;
   run_command?: string[];
   compose_service?: string;
   container_port?: number;
@@ -41,6 +43,8 @@ export interface ProjectConfig {
   enabled: boolean;
   /** Defaults to true for registrations created before project-level exposure existed. */
   public_enabled?: boolean;
+  /** Development responses bypass shared caches on the public tunnel route. */
+  dev_mode?: boolean;
   compose_file?: string;
   compose_override?: string;
   compose_port_services?: string[];

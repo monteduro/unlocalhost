@@ -40,6 +40,7 @@ automatically, and routes everything through one optional remote tunnel.
 - Generated overrides and state stay outside project repositories.
 - One Caddy instance and one optional tunnel serve every project on a machine.
 - Multiple machines stay independent through exact, machine-qualified DNS records.
+- Public development responses bypass browser and Cloudflare edge caches; unmarked production-like routes keep their upstream cache policy.
 - Humans and coding agents share the same non-interactive CLI and JSON status.
 
 ## Installation
@@ -140,8 +141,7 @@ exposing sensitive applications, and never use production data or secrets.
 Compose discovery, Node projects, multiple endpoints, Vite/HMR, Laravel proxy
 trust, Cloudflare, lifecycle, migration, troubleshooting, and every command.
 
-[docs/concepts.md](docs/concepts.md) explains the architecture and ownership
-boundaries.
+[docs/concepts.md](docs/concepts.md) explains architecture and ownership boundaries.
 
 ## License
 

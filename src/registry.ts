@@ -88,6 +88,7 @@ export interface AddProjectOptions {
   name?: string;
   run?: string[];
   public?: boolean;
+  dev?: boolean;
 }
 
 export interface AddEndpointOptions {
@@ -98,6 +99,7 @@ export interface AddEndpointOptions {
   service?: string;
   containerPort?: number;
   run?: string[];
+  dev?: boolean;
 }
 
 function validateComposeService(service: string): string {
@@ -250,6 +252,7 @@ async function addProjectUnlocked(
     slug,
     enabled: true,
     public_enabled: options.public ?? true,
+    ...((options.dev || options.run) ? { dev_mode: true } : {}),
     endpoints: [],
     upstream: {
       mode: "host_port",
@@ -355,6 +358,7 @@ async function addEndpointUnlocked(
   const endpoint: EndpointConfig = {
     id,
     slug,
+    ...((options.dev || options.run) ? { dev_mode: true } : {}),
     upstream: { mode: "host_port", host, port: selectedPort },
   };
   if (options.run) endpoint.run_command = options.run;
@@ -440,12 +444,34 @@ export async function setEndpointCommand(
   const id = validateSlug(endpointId);
   if (id === "web") {
     project.run_command = command;
+    project.dev_mode = true;
   } else {
     const endpoint = project.endpoints.find((candidate) => candidate.id === id);
     if (!endpoint) {
       throw new UnlocalhostError(`Endpoint "${id}" is not registered in project "${project.id}"`);
     }
     endpoint.run_command = command;
+    endpoint.dev_mode = true;
+  }
+  await saveProject(home, project);
+}
+
+export async function setEndpointDevMode(
+  home: string,
+  projectId: string,
+  endpointId: string,
+  enabled: boolean,
+): Promise<void> {
+  const project = await getProject(home, projectId);
+  const id = validateSlug(endpointId);
+  if (id === "web") {
+    project.dev_mode = enabled;
+  } else {
+    const endpoint = project.endpoints.find((candidate) => candidate.id === id);
+    if (!endpoint) {
+      throw new UnlocalhostError(`Endpoint "${id}" is not registered in project "${project.id}"`);
+    }
+    endpoint.dev_mode = enabled;
   }
   await saveProject(home, project);
 }

@@ -36,10 +36,12 @@ test("project config round-trips through TOML", () => {
     path: "/tmp/alpha",
     slug: "alpha",
     enabled: true,
+    dev_mode: true,
     endpoints: [
       {
         id: "api",
         slug: "alpha-api",
+        dev_mode: true,
         upstream: { mode: "host_port", host: "127.0.0.1", port: 18082 },
       },
     ],

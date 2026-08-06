@@ -29,6 +29,7 @@ function reverseProxyLines(
   endpoint: ResolvedEndpoint,
   indent: string,
   forwardedProto?: "https",
+  publicRoute = false,
 ): string[] {
   const options = [
     ...(forwardedProto
@@ -39,6 +40,16 @@ function reverseProxyLines(
       : []),
     ...(endpoint.id === "vite"
       ? [`${indent}\theader_up Host ${endpoint.upstream.host}:${endpoint.upstream.port}`]
+      : []),
+    ...(publicRoute && (endpoint.dev_mode || endpoint.run_command)
+      ? [
+          `${indent}\theader_down Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"`,
+          `${indent}\theader_down Pragma "no-cache"`,
+          `${indent}\theader_down Expires "0"`,
+          `${indent}\theader_down Surrogate-Control "no-store"`,
+          `${indent}\theader_down CDN-Cache-Control "no-store"`,
+          `${indent}\theader_down Cloudflare-CDN-Cache-Control "no-store"`,
+        ]
       : []),
   ];
   return options.length > 0
@@ -58,6 +69,7 @@ function routeBlock(
   forwardedProto?: "https",
   corsOrigin?: string,
   multiplexedVite?: ResolvedEndpoint,
+  publicRoute = false,
 ): string {
   const proxy = multiplexedVite
     ? [
@@ -67,17 +79,17 @@ function routeBlock(
         "\t\tquery token=*",
         "\t}",
         "\thandle @unlocalhost_vite_websocket {",
-        ...reverseProxyLines(multiplexedVite, "\t\t", forwardedProto),
+        ...reverseProxyLines(multiplexedVite, "\t\t", forwardedProto, publicRoute),
         "\t}",
         `\t@unlocalhost_vite_assets path /@vite/* /@react-refresh /@id/* /@fs/* /node_modules/* /resources/* /src/* /__laravel_vite_plugin__/* ${viteProjectPathPattern(project.path)}`,
         "\thandle @unlocalhost_vite_assets {",
-        ...reverseProxyLines(multiplexedVite, "\t\t", forwardedProto),
+        ...reverseProxyLines(multiplexedVite, "\t\t", forwardedProto, publicRoute),
         "\t}",
         "\thandle {",
-        ...reverseProxyLines(endpoint, "\t\t", forwardedProto),
+        ...reverseProxyLines(endpoint, "\t\t", forwardedProto, publicRoute),
         "\t}",
       ]
-    : reverseProxyLines(endpoint, "\t", forwardedProto);
+    : reverseProxyLines(endpoint, "\t", forwardedProto, publicRoute);
   const lines = [
     `# ${routeMarker(project, endpoint)}`,
     `${addresses.join(", ")} {`,
@@ -153,6 +165,7 @@ export function generateCaddyfile(config: GlobalConfig, projects: ProjectConfig[
             "https",
             vitePublicOrigin,
             endpoint.primary ? multiplexedVite : undefined,
+            true,
           ),
         );
       }

@@ -10,6 +10,7 @@ import {
   addProject,
   getProject,
   removeEndpoint,
+  setEndpointCommand,
 } from "../src/registry.js";
 
 test("secondary endpoints are grouped under one project and persist", async () => {
@@ -86,4 +87,37 @@ test("Compose projects can allocate and manage a host-process endpoint", async (
   assert.notEqual(endpoint.upstream.port, 13000);
   assert.equal(endpoint.compose_service, undefined);
   assert.deepEqual(endpoint.run_command, ["npm", "run", "dev"]);
+  assert.equal(endpoint.dev_mode, true);
+});
+
+test("explicit dev mode persists for Compose endpoints while unmarked routes stay production-like", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "unlocalhost-dev-mode-"));
+  const home = path.join(root, "state");
+  const projectPath = path.join(root, "app");
+  await fs.mkdir(projectPath);
+  await fs.writeFile(path.join(projectPath, "compose.yml"), "services:\n  web:\n    image: nginx\n");
+  await initializeHome(home);
+
+  const release = await addProject(home, {
+    path: projectPath,
+    slug: "release",
+    port: 13000,
+    compose: "compose.yml",
+  });
+  const devEndpoint = await addEndpoint(home, release.id, {
+    id: "preview",
+    port: 13001,
+    dev: true,
+  });
+
+  assert.equal(release.dev_mode, undefined);
+  assert.equal(devEndpoint.dev_mode, true);
+  const stored = await getProject(home, release.id);
+  assert.equal(stored.dev_mode, undefined);
+  assert.equal(stored.endpoints[0]?.dev_mode, true);
+
+  await setEndpointCommand(home, release.id, "preview", ["npm", "run", "preview"]);
+  const managed = await getProject(home, release.id);
+  assert.equal(managed.endpoints[0]?.dev_mode, true);
+  assert.deepEqual(managed.endpoints[0]?.run_command, ["npm", "run", "preview"]);
 });

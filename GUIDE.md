@@ -250,6 +250,26 @@ domain and stores it in `config.toml`. It is reused by every later project.
 This keeps two development machines independent while all names remain
 first-level subdomains covered by normal Cloudflare Universal SSL.
 
+### Development cache policy
+
+Cloudflare edge caching is bypassed only for endpoints marked as development.
+Managed `--run` commands are development endpoints automatically. The setup
+wizard also marks Compose routes as development when the `dev` feature is
+selected. For a manually registered Compose service or an already-running
+development server, opt in explicitly:
+
+```sh
+unlocalhost add "$PWD" --slug my-app --port 3000 --dev
+unlocalhost add "$PWD" --slug my-app --services web:3000 --dev
+unlocalhost endpoint add my-app api --port 4000 --dev
+```
+
+On the public tunnel route, Caddy replaces downstream cache headers with
+`no-store` directives understood by browsers, shared CDNs, and Cloudflare. The
+local `.localhost` route is left unchanged. Raw-port and Compose registrations
+without `--dev` retain their upstream cache policy, so production-like static
+or release artifacts can still be cached normally.
+
 ### Interactive authentication
 
 Select remote access in `unlocalhost setup`. On the first machine setup,
@@ -823,16 +843,16 @@ unlocalhost setup [path] [--features https,dev,remote] [--domain <domain>] [--ma
 unlocalhost init
 unlocalhost doctor
 
-unlocalhost add <path> --slug <slug> [--port <host-port>]
+unlocalhost add <path> --slug <slug> [--port <host-port>] [--dev]
 unlocalhost add <path> --slug <slug> [--run <command...>]
-unlocalhost add <path> --slug <slug> --services <service:container-port,...>
+unlocalhost add <path> --slug <slug> --services <service:container-port,...> [--dev]
 unlocalhost rm <id>
 unlocalhost list
 unlocalhost show <id>
 
-unlocalhost endpoint add <id> <name> [--port <host-port>]
+unlocalhost endpoint add <id> <name> [--port <host-port>] [--dev]
 unlocalhost endpoint add <id> <name> [--run <command...>]
-unlocalhost endpoint add <id> <name> --service <service> --container-port <port>
+unlocalhost endpoint add <id> <name> --service <service> --container-port <port> [--dev]
 unlocalhost endpoint set-command <id> <name> <command...>
 unlocalhost endpoint list <id>
 unlocalhost endpoint rm <id> <name>

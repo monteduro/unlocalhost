@@ -118,6 +118,7 @@ name = "dailygram"
 path = "/Users/…/Sites/dailygram"
 # Public and/or local hostnames (tool can derive both from slug)
 slug = "dailygram"
+dev_mode = true                     # optional; bypass shared caches on the public DEV route
 # hostname_public = "dailygram-studio.stemonte.io" # derived
 # hostname_local  = "dailygram.localhost"        # derived
 
@@ -152,6 +153,7 @@ Defer “auto join docker network + route to service name” to v2 if needed.
 - Each site: hostname(s) → `reverse_proxy host:port`.
 - Local HTTPS: `https://<slug>.localhost` (Caddy local CA / automatic HTTPS for localhost).
 - Public: `<slug>-<machine_alias>.<public_domain>` works when the endpoint's exact CNAME and that machine's tunnel exist; Caddy routes the Host when it arrives from the tunnel.
+- Public development routes replace downstream cache headers with `no-store` directives for browsers, shared CDNs, and Cloudflare. Local routes and unmarked production-like endpoints preserve upstream headers.
 
 Regenerate + `caddy reload` on add/rm/up/down that changes routes.
 
@@ -175,7 +177,7 @@ Regenerate + `caddy reload` on add/rm/up/down that changes routes.
 unlocalhost init                     # create ~/.unlocalhost, default config
 unlocalhost doctor                   # caddy/cloudflared/docker present, ports, tunnel health
 
-unlocalhost add <path> --slug <s> [--port <hostPort>] [--compose <file>]
+unlocalhost add <path> --slug <s> [--port <hostPort>] [--compose <file>] [--dev]
 unlocalhost rm <id>
 unlocalhost list
 unlocalhost show <id>

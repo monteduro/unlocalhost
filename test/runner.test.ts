@@ -170,6 +170,7 @@ test("allocator persists a free port and the generic runner owns its lifecycle",
       'require("http").createServer((q,r)=>{console.log("request");r.end("runner")}).listen(Number(process.env.PORT),process.env.HOST)',
     ],
   });
+  assert.equal(project.dev_mode, true);
   assert.equal(project.upstream.port, port);
   await assert.rejects(
     async () => await allocatePort(initialized.config, [project]),

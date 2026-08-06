@@ -148,6 +148,7 @@ test("non-interactive unknown stacks request --run and accept it without a port"
     "utf8",
   );
   assert.match(registration, /run_command = \[\s*"node", "server\.js"\s*\]/);
+  assert.match(registration, /dev_mode = true/);
   assert.doesNotMatch(registration, /12000.*run_command/);
 });
 

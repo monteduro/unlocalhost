@@ -49,6 +49,7 @@ import {
   removeEndpoint,
   removeProject,
   setEndpointCommand,
+  setEndpointDevMode,
   setProjectPublicEnabled,
 } from "./registry.js";
 import {
@@ -455,7 +456,7 @@ const program = new Command();
 program
   .name("unlocalhost")
   .description("Develop on your own machine from anywhere.")
-  .version("0.1.0-alpha.1")
+  .version("0.1.0-alpha.2")
   .option("--home <path>", "state directory (default: UNLOCALHOST_HOME or ~/.unlocalhost)")
   .option("--json", "emit machine-readable JSON where supported")
   .option("--yes", "accept non-interactive defaults")
@@ -610,6 +611,7 @@ one readable machine alias and reuses it for later projects.`,
           service: primaryCandidate.service,
           containerPort: primaryCandidate.containerPort,
           public: wantsRemote,
+          dev: wantsDev,
         });
       } else {
         if (!managedCommand) {
@@ -631,6 +633,11 @@ one readable machine alias and reuses it for later projects.`,
         await setEndpointCommand(home, project.id, "web", managedCommand);
         project = await getProject(home, project.id);
       }
+    }
+
+    if (wantsDev) {
+      await setEndpointDevMode(home, project.id, "web", true);
+      project = await getProject(home, project.id);
     }
 
     if (wantsDev && project.compose_file && detection.devServer === "vite") {
@@ -666,6 +673,7 @@ one readable machine alias and reuses it for later projects.`,
               slug: composeEndpointSlug(project.slug, endpointId),
               service: composeCandidate.service,
               containerPort: composeCandidate.containerPort,
+              dev: true,
             });
           } else if (managedCommand) {
             await addEndpoint(home, project.id, {
@@ -674,6 +682,8 @@ one readable machine alias and reuses it for later projects.`,
               run: managedCommand,
             });
           }
+        } else {
+          await setEndpointDevMode(home, project.id, endpointId, true);
         }
         devEndpointId = endpointId;
         project = await getProject(home, project.id);
@@ -918,6 +928,7 @@ program
   .option("--service <service>", "Compose service for an external port override")
   .option("--container-port <port>", "container HTTP port for the override", parsePort)
   .option("--run <command...>", "command for non-Compose projects; place this option last")
+  .option("--dev", "bypass shared caches on this endpoint's public tunnel route")
   .action(async (projectPath: string, options, command: Command) => {
     const home = homeFor(command);
     const config = await loadGlobalConfig(home);
@@ -967,6 +978,7 @@ program
         composePortServices: discovery.publishedServices,
         service: primary.service,
         containerPort: primary.containerPort,
+        dev: options.dev,
       });
       try {
         const usedIds = new Set(["web"]);
@@ -978,6 +990,7 @@ program
             host: options.host,
             service: candidate.service,
             containerPort: candidate.containerPort,
+            dev: options.dev,
           });
         }
         project = await getProject(home, project.id);
@@ -996,6 +1009,7 @@ program
         service: options.service,
         containerPort: options.containerPort,
         ...(run ? { run } : {}),
+        dev: options.dev,
       });
     }
     const caddy = await rebuildRoutes(home, config);
@@ -1132,6 +1146,7 @@ endpoint
   .option("--service <service>", "Compose service for an external port override")
   .option("--container-port <port>", "container HTTP port for the override", parsePort)
   .option("--run <command...>", "command for non-Compose projects; place this option last")
+  .option("--dev", "bypass shared caches on this endpoint's public tunnel route")
   .addHelpText(
     "after",
     `
@@ -1168,6 +1183,7 @@ port. This also applies to Next, Webpack, and other Node HTTP dev servers.`,
       ...(normalizeRunCommand(options.run)
         ? { run: normalizeRunCommand(options.run)! }
         : {}),
+      dev: options.dev,
     });
     const registered = await getProject(home, projectId);
     const caddy = await rebuildRoutes(home, config);
@@ -1206,11 +1222,13 @@ endpoint
       const home = homeFor(command);
       const normalized = normalizeRunCommand(commandParts)!;
       await setEndpointCommand(home, projectId, name, normalized);
+      const caddy = await rebuildRoutes(home, await loadGlobalConfig(home));
       emit(command, `Saved command for ${projectId}/${name}: ${normalized.join(" ")}`, {
         ok: true,
         project: projectId,
         endpoint: name,
         command: normalized,
+        caddy,
       });
     },
   );
