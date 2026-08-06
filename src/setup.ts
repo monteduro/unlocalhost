@@ -122,6 +122,8 @@ export async function detectProject(projectPath: string): Promise<ProjectDetecti
       ? "next"
       : "vite" in dependencies || /(?:^|\s)vite(?:\s|$)/.test(devScript ?? "")
         ? "vite"
+        : "@angular/cli" in dependencies || /(?:^|\s)ng\s+serve(?:\s|$)/.test(devScript ?? "")
+          ? "angular"
         : devScript
           ? "generic"
           : null;
@@ -234,6 +236,16 @@ export function composeDevCandidate(
 
 export function managedDevCommand(detection: ProjectDetection): string[] | null {
   if (!detection.devCommand) return null;
+  if (detection.devServer === "angular") {
+    return [
+      ...detection.devCommand,
+      "--",
+      "--host",
+      "{host}",
+      "--port",
+      "{port}",
+    ];
+  }
   if (detection.devServer !== "vite") return detection.devCommand;
   return [
     ...detection.devCommand,
@@ -268,13 +280,18 @@ export async function hostDevDependenciesAvailable(
   detection: ProjectDetection,
 ): Promise<boolean> {
   if (!detection.packageManager || !detection.devCommand) return false;
-  if (detection.devServer === "vite" || detection.devServer === "next") {
+  if (
+    detection.devServer === "vite" ||
+    detection.devServer === "next" ||
+    detection.devServer === "angular"
+  ) {
+    const binary = detection.devServer === "angular" ? "ng" : detection.devServer;
     return await exists(
       path.join(
         detection.path,
         "node_modules",
         ".bin",
-        process.platform === "win32" ? `${detection.devServer}.cmd` : detection.devServer,
+        process.platform === "win32" ? `${binary}.cmd` : binary,
       ),
     );
   }
@@ -329,6 +346,19 @@ export function devServerInstructions(
           `Endpoint: ${values.publicUrl ?? values.localUrl}`,
           "unlocalhost normalizes same-origin Next.js development assets and HMR at the proxy boundary.",
           "No allowedDevOrigins or Caddy setting needs to be hardcoded in the project.",
+        ],
+      },
+    ];
+  }
+  if (detection.devServer === "angular") {
+    return [
+      {
+        level: "info",
+        title: "Angular development endpoint configured",
+        lines: [
+          `Endpoint: ${values.publicUrl ?? values.localUrl}`,
+          "unlocalhost adapts the upstream Host and proxies live reload through the application origin.",
+          "No serve.allowedHosts or proxy setting needs to be hardcoded in angular.json.",
         ],
       },
     ];

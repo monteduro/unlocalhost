@@ -184,3 +184,24 @@ test("primary Vite routes receive a loopback Host without project allowedHosts c
   assert.match(publicRoute, /header_up Host 127\.0\.0\.1:18082/);
   assert.doesNotMatch(publicRoute, /unlocalhost_next_dev_same_origin/);
 });
+
+test("primary Angular routes receive a loopback Host without project allowedHosts changes", () => {
+  const source = generateCaddyfile(
+    { ...DEFAULT_CONFIG, public_domain: "dev.example.com", machine_alias: "studio" },
+    [
+      {
+        ...projects[1]!,
+        id: "angular-app",
+        slug: "angular-app",
+        dev_mode: true,
+        dev_server: "angular",
+      },
+    ],
+  );
+  const publicRoute = source.slice(
+    source.indexOf("http://angular-app-studio.dev.example.com:8080"),
+  );
+
+  assert.match(publicRoute, /header_up Host 127\.0\.0\.1:18082/);
+  assert.doesNotMatch(publicRoute, /unlocalhost_next_dev_same_origin/);
+});

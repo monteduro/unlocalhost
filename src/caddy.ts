@@ -40,7 +40,7 @@ function reverseProxyLines(
         ]
       : []),
     ...(originOverride ? [`${indent}\theader_up Origin ${originOverride}`] : []),
-    ...(endpoint.id === "vite" || endpoint.dev_server === "vite"
+    ...(endpoint.id === "vite" || endpoint.dev_server === "vite" || endpoint.dev_server === "angular"
       ? [`${indent}\theader_up Host ${endpoint.upstream.host}:${endpoint.upstream.port}`]
       : []),
     ...(publicRoute && (endpoint.dev_mode || endpoint.run_command)

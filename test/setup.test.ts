@@ -62,6 +62,33 @@ test("setup detects a Docker-free Next.js dev command", async () => {
   assert.deepEqual(managedDevCommand(detected), ["pnpm", "run", "dev"]);
 });
 
+test("setup detects Angular and creates a port-independent development command", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "unlocalhost-setup-angular-"));
+  await fs.mkdir(path.join(root, "node_modules", ".bin"), { recursive: true });
+  await fs.writeFile(path.join(root, "node_modules", ".bin", "ng"), "");
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      scripts: { dev: "ng serve" },
+      devDependencies: { "@angular/cli": "latest" },
+    }),
+  );
+
+  const detected = await detectProject(root);
+  assert.equal(detected.devServer, "angular");
+  assert.deepEqual(managedDevCommand(detected), [
+    "npm",
+    "run",
+    "dev",
+    "--",
+    "--host",
+    "{host}",
+    "--port",
+    "{port}",
+  ]);
+  assert.equal(await hostDevDependenciesAvailable(detected), true);
+});
+
 test("setup detects legacy Compose names and creates a port-independent Vite command", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "unlocalhost-setup-vite-"));
   await fs.writeFile(path.join(root, "docker-compose.yaml"), "services: {}\n");
