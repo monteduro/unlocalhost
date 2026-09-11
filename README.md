@@ -24,10 +24,12 @@ stateful databases, Vite, several HTTP services, and ten projects that all want
 the same host ports.
 
 unlocalhost gives each HTTP endpoint a stable hostname, allocates loopback ports
-automatically, and routes everything through one optional remote tunnel.
+automatically, and can publish databases locally for desktop clients without
+putting them on the proxy or tunnel.
 
 - The real development stack stays on your machine.
 - Compose projects can run simultaneously without host-port collisions.
+- MySQL and other detected databases receive stable, loopback-only ports for local clients.
 - Docker-free Node and static `public/` projects are started and supervised directly.
 - Frontend, API, admin, and Vite can be endpoints of one project.
 - Vite assets and HMR share the app hostname; no second DNS record is needed.
@@ -92,6 +94,8 @@ What do you want to enable?
 unlocalhost then detects a Compose service or local `dev` command, allocates
 every port, configures Caddy, starts the project, and optionally initializes or
 reuses that machine's tunnel. The first remote setup asks once for a persistent machine alias; `my-app-studio.example.com` keeps another machine independent.
+Detected Compose databases are offered as local TCP bindings and are selected
+by default; use `--tcp none` when they should remain container-only.
 It never patches tracked source or configuration, and disables a legacy `devhost` proxy during upgrades.
 Removal prints the exact DNS records to delete manually; it never reports unverified cleanup.
 If Vite, Next.js, or another tool requires an application setting, the CLI

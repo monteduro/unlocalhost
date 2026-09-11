@@ -46,10 +46,12 @@ import { commandExists, runCommand, runForeground } from "./process.js";
 import {
   addEndpoint,
   addProject,
+  addTcpBinding,
   getProject,
   listProjects,
   removeEndpoint,
   removeProject,
+  removeTcpBinding,
   setEndpointCommand,
   setEndpointDevMode,
   setEndpointDevServer,
@@ -72,6 +74,7 @@ import { fullStatus } from "./status.js";
 import {
   automaticComposeCandidate,
   composeDevCandidate,
+  databaseComposeCandidates,
   defaultSetupFeatures,
   defaultSlug,
   detectProject,
@@ -404,6 +407,35 @@ async function chooseSetupComposeCandidate(
   });
 }
 
+async function chooseSetupTcpCandidates(
+  candidates: ComposeCandidate[],
+  selection: string | undefined,
+  command: Command,
+): Promise<ComposeCandidate[]> {
+  if (selection !== undefined) {
+    if (selection.trim().toLowerCase() === "none") return [];
+    return selectComposeCandidates(candidates, selection);
+  }
+  const databases = databaseComposeCandidates(candidates);
+  if (databases.length === 0) return [];
+  if (
+    globalOptions(command).yes ||
+    wantsJson(command) ||
+    !process.stdin.isTTY ||
+    !process.stderr.isTTY
+  ) {
+    return databases;
+  }
+  return await promptCheckbox<ComposeCandidate>({
+    message: "Which database services should be available to local desktop clients?",
+    choices: databases.map((candidate) => ({
+      name: `${candidate.service}:${candidate.containerPort}`,
+      value: candidate,
+      checked: true,
+    })),
+  });
+}
+
 async function promptForDomain(command: Command): Promise<string> {
   if (
     globalOptions(command).yes ||
@@ -502,7 +534,7 @@ Compose or a local package dev command, allocates every port, configures Caddy,
 and optionally reuses this machine's tunnel and exact project DNS. Project files are never edited;
 required application changes are printed as explicit follow-up actions.
 
-The lower-level add, endpoint, proxy, and tunnel commands remain available for
+The lower-level add, endpoint, tcp, proxy, and tunnel commands remain available for
 advanced automation. See GUIDE.md for the full reference.`,
   );
 
@@ -516,6 +548,10 @@ program
     "non-interactive features: https,dev,remote (comma-separated)",
   )
   .option("--services <selection>", "primary Compose HTTP service; service:port disambiguates")
+  .option(
+    "--tcp <selection>",
+    'Compose TCP services for local desktop clients, comma-separated; use "none" to disable',
+  )
   .option("--domain <domain>", "public Cloudflare domain when remote access is selected")
   .option("--machine <alias>", "persistent, domain-unique machine alias for public hostnames")
   .option("--name <name>", "display name")
@@ -530,11 +566,12 @@ Interactive quick start:
 
 Agent/non-interactive examples:
   unlocalhost --yes setup . --features https,dev
+  unlocalhost --yes setup . --features https,dev --tcp mysql:3306
   unlocalhost --yes setup . --features https,dev,remote --domain example.com --machine studio
 
 The wizard uses a checkbox list for outcomes before asking any project-specific
-question. Ports, loopback mappings, Caddy routes, process environment, machine
-identity, tunnel, and exact project DNS are managed automatically. Project
+question. Ports, loopback mappings, Caddy routes, detected database bindings,
+process environment, machine identity, tunnel, and exact project DNS are managed automatically. Project
 source and configuration are never edited. Static public/index.html projects
 use public/ as their document root; other unknown stacks ask for the start
 command. When an application setting is required it prints a precise follow-up
@@ -732,6 +769,47 @@ one readable machine alias and reuses it for later projects.`,
       }
     }
 
+    if (project.compose_file) {
+      discovery ??= await discoverCompose(detection.path, project.compose_file);
+      if (String(options.tcp ?? "").trim().toLowerCase() === "none") {
+        for (const binding of project.tcp_bindings ?? []) {
+          await removeTcpBinding(home, project.id, binding.id);
+        }
+        project = await getProject(home, project.id);
+      }
+      const registeredTargets = new Set(
+        (project.tcp_bindings ?? []).map(
+          (binding) => `${binding.compose_service}:${binding.container_port}`,
+        ),
+      );
+      const selectableTcpCandidates = options.tcp === undefined
+        ? discovery.candidates.filter(
+            (candidate) =>
+              !registeredTargets.has(`${candidate.service}:${candidate.containerPort}`),
+          )
+        : discovery.candidates;
+      const selectedTcpCandidates = await chooseSetupTcpCandidates(
+        selectableTcpCandidates,
+        options.tcp,
+        command,
+      );
+      const usedIds = new Set(
+        (project.tcp_bindings ?? []).map((binding) => binding.id),
+      );
+      for (const candidate of selectedTcpCandidates) {
+        const target = `${candidate.service}:${candidate.containerPort}`;
+        if (registeredTargets.has(target)) continue;
+        const id = composeEndpointId(candidate, usedIds);
+        await addTcpBinding(home, project.id, {
+          id,
+          service: candidate.service,
+          containerPort: candidate.containerPort,
+        });
+        registeredTargets.add(target);
+      }
+      project = await getProject(home, project.id);
+    }
+
     const caddy = await rebuildRoutes(home, config);
     if (wantsHttps || wantsRemote) {
       await validateCaddyfile(home);
@@ -893,12 +971,23 @@ one readable machine alias and reuses it for later projects.`,
       compose_service: endpoint.compose_service ?? null,
       reachable: health.get(`${project!.id}/${endpoint.id}`) ?? null,
     }));
+    const tcpBindings = (project.tcp_bindings ?? []).map((binding) => ({
+      id: binding.id,
+      service: binding.compose_service,
+      container_port: binding.container_port,
+      host: binding.host,
+      port: binding.port,
+    }));
     const human = [
       `\nReady: ${project.id}`,
       ...endpoints.flatMap((endpoint) => [
         `  ${endpoint.id}: ${endpoint.public_url ?? endpoint.local_url}`,
         ...(endpoint.public_url ? [`       local: ${endpoint.local_url}`] : []),
       ]),
+      ...tcpBindings.map(
+        (binding) =>
+          `  tcp/${binding.id}: ${binding.host}:${binding.port} → ${binding.service}:${binding.container_port}`,
+      ),
       ...instructions.flatMap((instruction) => [
         "",
         `${instruction.level === "action" ? "ACTION" : "NOTE"}: ${instruction.title}`,
@@ -915,6 +1004,7 @@ one readable machine alias and reuses it for later projects.`,
       features,
       project,
       endpoints,
+      tcp_bindings: tcpBindings,
       instructions,
       lifecycle,
       caddy,
@@ -961,6 +1051,7 @@ program
   .option("--name <name>", "display name")
   .option("--compose <file>", "Compose file relative to the project")
   .option("--services <selection>", "Compose HTTP services, comma-separated; service:port disambiguates")
+  .option("--tcp <selection>", "Compose TCP services for local clients, comma-separated")
   .option("--service <service>", "Compose service for an external port override")
   .option("--container-port <port>", "container HTTP port for the override", parsePort)
   .option("--run <command...>", "command for non-Compose projects; place this option last")
@@ -988,6 +1079,9 @@ program
         ? await detectComposeFile(resolvedProjectPath)
         : null;
     const composeFile = options.compose ?? detectedCompose ?? undefined;
+    if (options.tcp && !composeFile) {
+      throw new UnlocalhostError("--tcp requires a Compose project");
+    }
     const shouldDiscover =
       Boolean(options.services) ||
       (Boolean(composeFile) &&
@@ -997,8 +1091,9 @@ program
         !run);
 
     let project: ProjectConfig;
+    let discovery: Awaited<ReturnType<typeof discoverCompose>> | null = null;
     if (shouldDiscover) {
-      const discovery = await discoverCompose(resolvedProjectPath, composeFile);
+      discovery = await discoverCompose(resolvedProjectPath, composeFile);
       const selected = await chooseComposeCandidates(
         discovery.candidates,
         options.services,
@@ -1048,6 +1143,24 @@ program
         dev: options.dev,
       });
     }
+    if (options.tcp) {
+      discovery ??= await discoverCompose(resolvedProjectPath, composeFile);
+      const selectedTcpCandidates = await chooseSetupTcpCandidates(
+        discovery.candidates,
+        options.tcp,
+        command,
+      );
+      const usedIds = new Set<string>();
+      for (const candidate of selectedTcpCandidates) {
+        const id = composeEndpointId(candidate, usedIds);
+        await addTcpBinding(home, project.id, {
+          id,
+          service: candidate.service,
+          containerPort: candidate.containerPort,
+        });
+      }
+      project = await getProject(home, project.id);
+    }
     const caddy = await rebuildRoutes(home, config);
     const dns = await ensureProjectDns(home, config, [project]);
     const registeredEndpoints = projectEndpoints(project).map((endpoint) => ({
@@ -1068,11 +1181,16 @@ program
               : ""
           }`,
       ),
+      ...(project.tcp_bindings ?? []).map(
+        (binding) =>
+          `  tcp/${binding.id}: ${binding.host}:${binding.port} → ${binding.compose_service}:${binding.container_port}`,
+      ),
     ].join("\n");
     emit(command, human, {
       ok: true,
       project,
       endpoints: registeredEndpoints,
+      tcp_bindings: project.tcp_bindings ?? [],
       urls: { local: localUrl(project, config), public: publicUrl(project, config) },
       dns,
       caddy,
@@ -1334,6 +1452,81 @@ endpoint
     }
   });
 
+const tcp = program
+  .command("tcp")
+  .description("manage loopback-only Compose TCP bindings for database clients");
+
+tcp
+  .command("add")
+  .description("publish one Compose TCP service on an allocated loopback port")
+  .argument("<project>", "registered project id")
+  .argument("<name>", "binding name, for example mysql")
+  .requiredOption("--service <service>", "Compose service")
+  .requiredOption("--container-port <port>", "container TCP port", parsePort)
+  .option("--port <port>", "specific loopback port; allocated automatically when omitted", parsePort)
+  .addHelpText(
+    "after",
+    `
+Example:
+  unlocalhost tcp add my-app mysql --service mysql --container-port 3306
+  unlocalhost port my-app --tcp mysql
+
+TCP bindings listen only on loopback. They are not routed through Caddy or the
+optional Cloudflare tunnel. Compose may recreate the service to apply a new
+port mapping, but unlocalhost never removes its volumes.`,
+  )
+  .action(async (projectId: string, name: string, options, command: Command) => {
+    const binding = await addTcpBinding(homeFor(command), projectId, {
+      id: name,
+      service: options.service,
+      containerPort: options.containerPort,
+      port: options.port,
+    });
+    emit(
+      command,
+      [
+        `Added ${projectId}/tcp/${binding.id}: ${binding.host}:${binding.port} → ${binding.compose_service}:${binding.container_port}`,
+        `Run "unlocalhost up ${projectId}" to apply the Compose mapping. Named volumes are preserved.`,
+      ].join("\n"),
+      { schema_version: 1, ok: true, project: projectId, tcp_binding: binding },
+    );
+  });
+
+tcp
+  .command("list")
+  .description("list local TCP bindings for one project")
+  .argument("<project>")
+  .action(async (projectId: string, _options, command: Command) => {
+    const project = await getProject(homeFor(command), projectId);
+    const bindings = project.tcp_bindings ?? [];
+    if (wantsJson(command)) {
+      printJson({ schema_version: 1, project: project.id, tcp_bindings: bindings });
+    } else if (bindings.length === 0) {
+      printLine(`No TCP bindings registered for ${project.id}.`);
+    } else {
+      for (const binding of bindings) {
+        printLine(
+          `${binding.id}  ${binding.host}:${binding.port} → ${binding.compose_service}:${binding.container_port}`,
+        );
+      }
+    }
+  });
+
+tcp
+  .command("rm")
+  .alias("remove")
+  .description("remove one local TCP binding")
+  .argument("<project>")
+  .argument("<name>")
+  .action(async (projectId: string, name: string, _options, command: Command) => {
+    const removed = await removeTcpBinding(homeFor(command), projectId, name);
+    emit(
+      command,
+      `Removed ${projectId}/tcp/${removed.id}`,
+      { schema_version: 1, ok: true, project: projectId, removed: removed.id },
+    );
+  });
+
 async function composeOperation(
   operation: "up" | "down",
   id: string | undefined,
@@ -1451,8 +1644,21 @@ program
   .description("print one allocated upstream port")
   .argument("<id>")
   .option("--endpoint <name>", 'endpoint name (default: "web")', "web")
+  .option("--tcp <name>", "TCP binding name")
   .action(async (id: string, options, command: Command) => {
     const project = await getProject(homeFor(command), id);
+    if (options.tcp) {
+      const binding = (project.tcp_bindings ?? []).find(
+        (candidate) => candidate.id === options.tcp,
+      );
+      if (!binding) {
+        throw new UnlocalhostError(
+          `TCP binding "${options.tcp}" is not registered in project "${project.id}"`,
+        );
+      }
+      printLine(String(binding.port));
+      return;
+    }
     const selected = getEndpoint(project, options.endpoint);
     if (!selected) {
       throw new UnlocalhostError(

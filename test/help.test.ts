@@ -42,6 +42,7 @@ test("setup help promises goal-first setup without port decisions", () => {
 
   assert.match(output, /goal-oriented wizard/);
   assert.match(output, /--features <list>/);
+  assert.match(output, /--tcp <selection>/);
   assert.match(output, /checkbox list/);
   assert.match(output, /--machine <alias>/);
   assert.match(output, /Ports, loopback mappings, Caddy routes/);
@@ -49,6 +50,16 @@ test("setup help promises goal-first setup without port decisions", () => {
   assert.match(output, /source and configuration are never edited/);
   assert.match(output, /Static public\/index\.html projects/);
   assert.match(output, /unknown stacks ask for the start\s+command/);
+});
+
+test("TCP help explains safe local database publication", () => {
+  const output = runHelp(["tcp", "add", "--help"]);
+
+  assert.match(output, /--service <service>/);
+  assert.match(output, /--container-port <port>/);
+  assert.match(output, /mysql --service mysql --container-port 3306/);
+  assert.match(output, /only on loopback/);
+  assert.match(output, /never removes its volumes/);
 });
 
 test("endpoint help explains host and Compose Vite registration", () => {

@@ -5,9 +5,14 @@ import { UnlocalhostError } from "./errors.js";
 import { getEndpoint, projectEndpoints } from "./endpoints.js";
 import { assertInside, exists, writeAtomic } from "./files.js";
 import { pathsFor } from "./paths.js";
-import { allocatePort } from "./ports.js";
+import { allocatePort, portAvailable } from "./ports.js";
 import { stopEndpointRunner, stopProjectRunners } from "./runner.js";
-import type { DevServerKind, EndpointConfig, ProjectConfig } from "./types.js";
+import type {
+  DevServerKind,
+  EndpointConfig,
+  ProjectConfig,
+  TcpBindingConfig,
+} from "./types.js";
 
 const SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
@@ -104,6 +109,14 @@ export interface AddEndpointOptions {
   devServer?: DevServerKind;
 }
 
+export interface AddTcpBindingOptions {
+  id: string;
+  service: string;
+  containerPort: number;
+  port?: number;
+  host?: string;
+}
+
 function validateComposeService(service: string): string {
   if (!/^[a-zA-Z0-9_.-]+$/.test(service)) {
     throw new UnlocalhostError(`Invalid Compose service "${service}"`);
@@ -112,7 +125,7 @@ function validateComposeService(service: string): string {
 }
 
 function composeOverrideYaml(project: ProjectConfig): string {
-  const mappings = projectEndpoints(project)
+  const endpointMappings = projectEndpoints(project)
     .filter(
       (endpoint) =>
         endpoint.compose_service !== undefined &&
@@ -123,6 +136,12 @@ function composeOverrideYaml(project: ProjectConfig): string {
       hostPort: endpoint.upstream.port,
       containerPort: endpoint.container_port!,
     }));
+  const tcpMappings = (project.tcp_bindings ?? []).map((binding) => ({
+    service: validateComposeService(binding.compose_service),
+    hostPort: binding.port,
+    containerPort: binding.container_port,
+  }));
+  const mappings = [...endpointMappings, ...tcpMappings];
   const grouped = new Map<string, Array<{ hostPort: number; containerPort: number }>>();
   for (const mapping of mappings) {
     const ports = grouped.get(mapping.service) ?? [];
@@ -158,7 +177,7 @@ function composeOverrideYaml(project: ProjectConfig): string {
 async function updateComposeOverride(home: string, project: ProjectConfig): Promise<void> {
   const hasManagedMappings = projectEndpoints(project).some(
     (endpoint) => endpoint.compose_service && endpoint.container_port,
-  );
+  ) || (project.tcp_bindings?.length ?? 0) > 0;
   const override = path.join(pathsFor(home).overrides, `${project.id}.yml`);
   assertInside(pathsFor(home).overrides, override, "Compose override");
   if (!hasManagedMappings) {
@@ -231,9 +250,16 @@ async function addProjectUnlocked(
         endpoint.upstream.host === (options.host ?? "127.0.0.1") &&
         endpoint.upstream.port === selectedPort,
     );
-  if (duplicateUpstream) {
+  const duplicateTcpBinding = existing
+    .flatMap((project) =>
+      (project.tcp_bindings ?? []).map((binding) => ({ project, binding })),
+    )
+    .find(({ binding }) => binding.port === selectedPort);
+  if (duplicateUpstream || duplicateTcpBinding) {
+    const ownerProject = duplicateUpstream?.project ?? duplicateTcpBinding!.project;
+    const ownerId = duplicateUpstream?.endpoint.id ?? duplicateTcpBinding!.binding.id;
     throw new UnlocalhostError(
-      `Port ${selectedPort} is already used by project "${duplicateUpstream.project.id}" endpoint "${duplicateUpstream.endpoint.id}"`,
+      `Port ${selectedPort} is already used by project "${ownerProject.id}" binding "${ownerId}"`,
     );
   }
 
@@ -353,9 +379,19 @@ async function addEndpointUnlocked(
     ({ endpoint }) =>
       endpoint.upstream.host === host && endpoint.upstream.port === selectedPort,
   );
-  if (upstreamOwner) {
+  const tcpOwner = projects
+    .flatMap((registered) =>
+      (registered.tcp_bindings ?? []).map((binding) => ({
+        project: registered,
+        binding,
+      })),
+    )
+    .find(({ binding }) => binding.port === selectedPort);
+  if (upstreamOwner || tcpOwner) {
+    const ownerProject = upstreamOwner?.project ?? tcpOwner!.project;
+    const ownerId = upstreamOwner?.endpoint.id ?? tcpOwner!.binding.id;
     throw new UnlocalhostError(
-      `Port ${selectedPort} is already used by project "${upstreamOwner.project.id}" endpoint "${upstreamOwner.endpoint.id}"`,
+      `Port ${selectedPort} is already used by project "${ownerProject.id}" binding "${ownerId}"`,
     );
   }
   const endpoint: EndpointConfig = {
@@ -385,6 +421,151 @@ export async function addEndpoint(
     home,
     async () => await addEndpointUnlocked(home, projectId, options),
   );
+}
+
+async function addTcpBindingUnlocked(
+  home: string,
+  projectId: string,
+  options: AddTcpBindingOptions,
+): Promise<TcpBindingConfig> {
+  const project = await getProject(home, projectId);
+  if (!project.compose_file) {
+    throw new UnlocalhostError(
+      `Project "${project.id}" is not Compose-managed`,
+    );
+  }
+  if (
+    project.compose_override &&
+    !project.compose_service &&
+    project.endpoints.every((endpoint) => !endpoint.compose_service)
+  ) {
+    throw new UnlocalhostError(
+      "The existing Compose override predates managed mappings; re-register the project before adding a TCP binding",
+    );
+  }
+  const id = validateSlug(options.id);
+  const service = validateComposeService(options.service);
+  if (
+    !Number.isInteger(options.containerPort) ||
+    options.containerPort < 1 ||
+    options.containerPort > 65535
+  ) {
+    throw new UnlocalhostError("--container-port must be an integer from 1 to 65535");
+  }
+  if (
+    options.port !== undefined &&
+    (!Number.isInteger(options.port) || options.port < 1 || options.port > 65535)
+  ) {
+    throw new UnlocalhostError("--port must be an integer from 1 to 65535");
+  }
+  const requestedHost = options.host ?? "127.0.0.1";
+  if (requestedHost !== "127.0.0.1" && requestedHost !== "localhost") {
+    throw new UnlocalhostError(
+      "TCP bindings accept only 127.0.0.1 or localhost",
+    );
+  }
+  const host = "127.0.0.1" as const;
+
+  const projects = await listProjects(home);
+  const config = await loadGlobalConfig(home);
+  const selectedPort = options.port ?? (await allocatePort(config, projects));
+  const existingBindings = project.tcp_bindings ?? [];
+  if (existingBindings.some((binding) => binding.id === id)) {
+    throw new UnlocalhostError(
+      `TCP binding "${id}" already exists in project "${project.id}"`,
+    );
+  }
+  if (
+    existingBindings.some(
+      (binding) =>
+        binding.compose_service === service &&
+        binding.container_port === options.containerPort,
+    )
+  ) {
+    throw new UnlocalhostError(
+      `TCP target "${service}:${options.containerPort}" is already registered in project "${project.id}"`,
+    );
+  }
+  const endpointOwner = projects
+    .flatMap((registered) =>
+      projectEndpoints(registered).map((endpoint) => ({
+        project: registered,
+        id: endpoint.id,
+        host: endpoint.upstream.host,
+        port: endpoint.upstream.port,
+        kind: "endpoint",
+      })),
+    )
+    .find((allocated) => allocated.port === selectedPort);
+  const tcpOwner = projects
+    .flatMap((registered) =>
+      (registered.tcp_bindings ?? []).map((binding) => ({
+        project: registered,
+        id: binding.id,
+        host: binding.host,
+        port: binding.port,
+        kind: "TCP binding",
+      })),
+    )
+    .find((allocated) => allocated.port === selectedPort);
+  const owner = endpointOwner ?? tcpOwner;
+  if (owner) {
+    throw new UnlocalhostError(
+      `Port ${selectedPort} is already used by project "${owner.project.id}" ${owner.kind} "${owner.id}"`,
+    );
+  }
+  if (options.port !== undefined && !(await portAvailable(selectedPort))) {
+    throw new UnlocalhostError(
+      `Port ${selectedPort} is already in use on 127.0.0.1`,
+    );
+  }
+
+  const binding: TcpBindingConfig = {
+    id,
+    compose_service: service,
+    container_port: options.containerPort,
+    host,
+    port: selectedPort,
+  };
+  project.tcp_bindings = [...existingBindings, binding];
+  await updateComposeOverride(home, project);
+  await saveProject(home, project);
+  return binding;
+}
+
+export async function addTcpBinding(
+  home: string,
+  projectId: string,
+  options: AddTcpBindingOptions,
+): Promise<TcpBindingConfig> {
+  return await withRegistryLock(
+    home,
+    async () => await addTcpBindingUnlocked(home, projectId, options),
+  );
+}
+
+export async function removeTcpBinding(
+  home: string,
+  projectId: string,
+  bindingId: string,
+): Promise<TcpBindingConfig> {
+  return await withRegistryLock(home, async () => {
+    const project = await getProject(home, projectId);
+    const id = validateSlug(bindingId);
+    const bindings = project.tcp_bindings ?? [];
+    const index = bindings.findIndex((binding) => binding.id === id);
+    if (index === -1) {
+      throw new UnlocalhostError(
+        `TCP binding "${id}" is not registered in project "${project.id}"`,
+      );
+    }
+    const [removed] = bindings.splice(index, 1);
+    if (bindings.length > 0) project.tcp_bindings = bindings;
+    else delete project.tcp_bindings;
+    await updateComposeOverride(home, project);
+    await saveProject(home, project);
+    return removed!;
+  });
 }
 
 export async function setComposePortServices(

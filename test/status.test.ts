@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { rebuildCaddyfile } from "../src/caddy.js";
-import { initializeHome } from "../src/config.js";
-import { addEndpoint, addProject } from "../src/registry.js";
+import { initializeHome, serializeProject } from "../src/config.js";
+import { addEndpoint, addProject, getProject } from "../src/registry.js";
 import { fullStatus } from "../src/status.js";
 
 test("status schema reports a reachable bare upstream and proxy route", async () => {
@@ -22,12 +23,16 @@ test("status schema reports a reachable bare upstream and proxy route", async ()
     response.writeHead(200);
     response.end("api");
   });
+  const tcpServer = net.createServer();
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   await new Promise<void>((resolve) => apiServer.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) => tcpServer.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   const apiAddress = apiServer.address();
+  const tcpAddress = tcpServer.address();
   assert.ok(address && typeof address === "object");
   assert.ok(apiAddress && typeof apiAddress === "object");
+  assert.ok(tcpAddress && typeof tcpAddress === "object");
   try {
     const initialized = await initializeHome(home);
     await addProject(home, {
@@ -39,6 +44,20 @@ test("status schema reports a reachable bare upstream and proxy route", async ()
       id: "api",
       port: apiAddress.port,
     });
+    const stored = await getProject(home, "status-app");
+    stored.tcp_bindings = [
+      {
+        id: "mysql",
+        compose_service: "mysql",
+        container_port: 3306,
+        host: "127.0.0.1",
+        port: tcpAddress.port,
+      },
+    ];
+    await fs.writeFile(
+      path.join(home, "projects", "status-app.toml"),
+      serializeProject(stored),
+    );
     await rebuildCaddyfile(home, initialized.config);
     const result = await fullStatus(home, initialized.config);
     assert.equal(result.schema_version, 1);
@@ -63,9 +82,12 @@ test("status schema reports a reachable bare upstream and proxy route", async ()
       status: 200,
       error: null,
     });
+    const tcpBindings = projects[0]?.tcp_bindings as Array<Record<string, unknown>>;
+    assert.equal(tcpBindings[0]?.id, "mysql");
+    assert.equal(tcpBindings[0]?.reachable, true);
   } finally {
     await Promise.all(
-      [server, apiServer].map(
+      [server, apiServer, tcpServer].map(
         async (listener) =>
           await new Promise<void>((resolve, reject) =>
             listener.close((error) => (error ? reject(error) : resolve())),

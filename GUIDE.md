@@ -381,8 +381,9 @@ unlocalhost detects all common current and legacy filenames:
 - `docker-compose.yaml`
 
 It asks Docker Compose for ports declared through `ports` or `expose`. If
-several candidates exist, select only HTTP services. MySQL `3306`, Redis `6379`,
-and similar internal TCP services must not be selected.
+several candidates exist, select only HTTP services for the application
+endpoint. Database services such as MySQL `3306` are handled separately as
+loopback-only TCP bindings; they never become HTTP endpoints.
 
 For a non-interactive agent or script:
 
@@ -426,9 +427,42 @@ mappings:
 ```
 
 Unselected services keep their internal container ports but are not published
-on the host. Therefore ten MySQL containers may all listen on `3306` inside
-their separate Compose networks without a host conflict. Compose 2.24.4 or
+on the host. Selected database bindings receive different allocated host ports,
+so ten MySQL containers may all listen on `3306` inside their separate Compose
+networks without a host conflict. Compose 2.24.4 or
 newer is required for this replacement behavior.
+
+### Local database clients
+
+During `unlocalhost setup`, detected MySQL, MariaDB, PostgreSQL, MongoDB, and
+SQL Server services are offered as local TCP bindings and selected by default.
+Non-interactive setup selects detected databases automatically. Disable that
+behavior explicitly with:
+
+```sh
+unlocalhost --yes setup . --features https,dev --tcp none
+```
+
+Choose specific Compose targets with:
+
+```sh
+unlocalhost --yes setup . --features https,dev --tcp mysql:3306
+```
+
+Existing registrations can add a binding without re-running setup:
+
+```sh
+unlocalhost tcp add my-app mysql --service mysql --container-port 3306
+unlocalhost port my-app --tcp mysql
+```
+
+The second command prints the allocated host port. Configure Sequel Ace or
+another desktop client with host `127.0.0.1`, that port, and the credentials
+from the project. Laravel and other containers continue to use `mysql:3306`.
+
+TCP bindings are never added to Caddy, public DNS, or the Cloudflare tunnel.
+Adding one may cause Compose to recreate the affected service the next time it
+starts, but unlocalhost never removes Compose volumes or runs `down -v`.
 
 For unusual files without declared ports, use explicit flags:
 
@@ -850,13 +884,13 @@ actually needs them.
 ## Command reference
 
 ```text
-unlocalhost setup [path] [--features https,dev,remote] [--domain <domain>] [--machine <alias>]
+unlocalhost setup [path] [--features https,dev,remote] [--tcp <service:port,...|none>] [--domain <domain>] [--machine <alias>]
 unlocalhost init
 unlocalhost doctor
 
 unlocalhost add <path> --slug <slug> [--port <host-port>] [--dev]
 unlocalhost add <path> --slug <slug> [--run <command...>]
-unlocalhost add <path> --slug <slug> --services <service:container-port,...> [--dev]
+unlocalhost add <path> --slug <slug> --services <service:container-port,...> [--tcp <service:port,...>] [--dev]
 unlocalhost rm <id>
 unlocalhost list
 unlocalhost show <id>
@@ -868,12 +902,16 @@ unlocalhost endpoint set-command <id> <name> <command...>
 unlocalhost endpoint list <id>
 unlocalhost endpoint rm <id> <name>
 
+unlocalhost tcp add <id> <name> --service <service> --container-port <port> [--port <host-port>]
+unlocalhost tcp list <id>
+unlocalhost tcp rm <id> <name>
+
 unlocalhost up <id|--all>
 unlocalhost down <id|--all>
 unlocalhost restart <id>
 unlocalhost status [id]
 unlocalhost url <id> [--endpoint <name>] [--local|--public]
-unlocalhost port <id> [--endpoint <name>]
+unlocalhost port <id> [--endpoint <name>|--tcp <name>]
 unlocalhost logs <id> [--endpoint <name>] [--stderr]
 
 unlocalhost caddy rebuild

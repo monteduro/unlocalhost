@@ -37,5 +37,14 @@ export function printProjectStatuses(projects: ProjectStatus[]): void {
         );
       }
     }
+    for (const binding of project.tcp_bindings) {
+      printLine(`  tcp/${binding.id}`);
+      printLine(
+        `    local:    ${binding.host}:${binding.port} — ${binding.reachable ? "reachable" : "unreachable"}`,
+      );
+      printLine(
+        `    compose:  ${binding.compose_service}:${binding.container_port}`,
+      );
+    }
   }
 }

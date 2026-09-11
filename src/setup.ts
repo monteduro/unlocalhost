@@ -55,8 +55,9 @@ const COMPOSE_FILES = [
   "docker-compose.yaml",
 ] as const;
 
-const NON_HTTP_SERVICE = /(?:^|[-_.])(db|database|mysql|mariadb|postgres|postgresql|redis|memcached|mongo|mongodb|mailpit|mailhog)(?:$|[-_.])/i;
-const NON_HTTP_PORTS = new Set([3306, 5432, 6379, 11211, 27017, 1025]);
+const NON_HTTP_SERVICE = /(?:^|[-_.])(db|database|mysql|mariadb|postgres|postgresql|mssql|redis|memcached|mongo|mongodb|mailpit|mailhog)(?:$|[-_.])/i;
+const NON_HTTP_PORTS = new Set([1433, 3306, 5432, 6379, 11211, 27017, 1025]);
+const DATABASE_PORTS = new Set([1433, 3306, 5432, 27017]);
 
 function packageManagerCommand(manager: PackageManager, script: string): string[] {
   if (manager === "yarn") return ["yarn", "run", script];
@@ -227,6 +228,12 @@ export function rankedHttpCandidates(candidates: ComposeCandidate[]): ComposeCan
   return candidates
     .filter((candidate) => candidateScore(candidate) > -1000)
     .sort((left, right) => candidateScore(right) - candidateScore(left));
+}
+
+export function databaseComposeCandidates(
+  candidates: ComposeCandidate[],
+): ComposeCandidate[] {
+  return candidates.filter((candidate) => DATABASE_PORTS.has(candidate.containerPort));
 }
 
 export function automaticComposeCandidate(
