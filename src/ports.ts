@@ -3,7 +3,7 @@ import { UnlocalhostError } from "./errors.js";
 import { projectEndpoints } from "./endpoints.js";
 import type { GlobalConfig, ProjectConfig } from "./types.js";
 
-async function portAvailable(port: number): Promise<boolean> {
+export async function portAvailable(port: number): Promise<boolean> {
   return await new Promise((resolve) => {
     const server = net.createServer();
     server.unref();
@@ -20,7 +20,10 @@ export async function allocatePort(
 ): Promise<number> {
   const registered = new Set(
     projects.flatMap((project) =>
-      projectEndpoints(project).map((endpoint) => endpoint.upstream.port),
+      [
+        ...projectEndpoints(project).map((endpoint) => endpoint.upstream.port),
+        ...(project.tcp_bindings ?? []).map((binding) => binding.port),
+      ],
     ),
   );
   for (let port = config.port_range_start; port <= config.port_range_end; port += 1) {

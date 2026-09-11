@@ -50,6 +50,15 @@ test("project config round-trips through TOML", () => {
     compose_file: "compose.yml",
     compose_override: "/tmp/unlocalhost/overrides/alpha.yml",
     compose_port_services: ["web", "database"],
+    tcp_bindings: [
+      {
+        id: "mysql",
+        compose_service: "database",
+        container_port: 3306,
+        host: "127.0.0.1",
+        port: 13306,
+      },
+    ],
     upstream: { mode: "host_port", host: "127.0.0.1", port: 18081 },
   };
   assert.deepEqual(parseProject(serializeProject(project)), project);
@@ -139,6 +148,21 @@ port = 8080
 `),
     /expected vite, next, angular, astro, or generic/,
   );
+});
+
+test("legacy project configuration remains valid without TCP bindings", () => {
+  const project = parseProject(`
+id = "alpha"
+name = "Alpha"
+path = "/tmp/alpha"
+slug = "alpha"
+[upstream]
+mode = "host_port"
+host = "127.0.0.1"
+port = 8080
+`);
+
+  assert.equal(project.tcp_bindings, undefined);
 });
 
 test("Compose port replacement requires the supported CLI version", () => {

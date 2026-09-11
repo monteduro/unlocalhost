@@ -6,7 +6,13 @@ import { parse, stringify } from "smol-toml";
 import { UnlocalhostError } from "./errors.js";
 import { ensureDir, exists, writeAtomic } from "./files.js";
 import { pathsFor } from "./paths.js";
-import type { DevServerKind, EndpointConfig, GlobalConfig, ProjectConfig } from "./types.js";
+import type {
+  DevServerKind,
+  EndpointConfig,
+  GlobalConfig,
+  ProjectConfig,
+  TcpBindingConfig,
+} from "./types.js";
 
 export const DEFAULT_CONFIG: GlobalConfig = {
   default_projects_root: "~/Sites",
@@ -167,6 +173,18 @@ function validComposeServices(value: unknown, name: string): string[] | undefine
   return [...new Set(value as string[])];
 }
 
+function validComposeService(value: unknown, name: string): string {
+  const service = requiredString(value, name);
+  if (!/^[a-zA-Z0-9_.-]+$/.test(service)) {
+    throw new UnlocalhostError(`Invalid ${name}: expected a Compose service name`);
+  }
+  return service;
+}
+
+function loopbackAddress(host: string, port: number): string {
+  return `${host === "localhost" ? "127.0.0.1" : host}:${port}`;
+}
+
 export function parseGlobalConfig(source: string): GlobalConfig {
   let value: Record<string, unknown>;
   try {
@@ -310,6 +328,35 @@ export function parseProject(source: string, filename = "project"): ProjectConfi
     }
     return parsed;
   });
+  const rawTcpBindings = value.tcp_bindings;
+  if (rawTcpBindings !== undefined && !Array.isArray(rawTcpBindings)) {
+    throw new UnlocalhostError(`${filename}.tcp_bindings: expected an array of binding tables`);
+  }
+  const tcpBindings: TcpBindingConfig[] = (rawTcpBindings ?? []).map((raw, index) => {
+    const binding = raw as Record<string, unknown>;
+    const host = requiredString(
+      binding.host,
+      `${filename}.tcp_bindings[${index}].host`,
+    );
+    if (host !== "127.0.0.1" && host !== "localhost") {
+      throw new UnlocalhostError(
+        `${filename}.tcp_bindings[${index}].host: accepts only 127.0.0.1 or localhost`,
+      );
+    }
+    return {
+      id: validSlug(binding.id, `${filename}.tcp_bindings[${index}].id`),
+      compose_service: validComposeService(
+        binding.compose_service,
+        `${filename}.tcp_bindings[${index}].compose_service`,
+      ),
+      container_port: validPort(
+        binding.container_port,
+        `${filename}.tcp_bindings[${index}].container_port`,
+      ),
+      host: "127.0.0.1",
+      port: validPort(binding.port, `${filename}.tcp_bindings[${index}].port`),
+    };
+  });
   const project: ProjectConfig = {
     id: validSlug(value.id, `${filename}.id`),
     name: requiredString(value.name, `${filename}.name`),
@@ -317,6 +364,7 @@ export function parseProject(source: string, filename = "project"): ProjectConfi
     slug: validSlug(value.slug, `${filename}.slug`),
     enabled: typeof value.enabled === "boolean" ? value.enabled : true,
     endpoints,
+    ...(rawTcpBindings === undefined ? {} : { tcp_bindings: tcpBindings }),
     upstream: {
       mode: "host_port",
       host: requiredString(upstream.host, `${filename}.upstream.host`),
@@ -341,7 +389,9 @@ export function parseProject(source: string, filename = "project"): ProjectConfi
   }
   const ids = new Set(["web"]);
   const slugs = new Set([project.slug]);
-  const upstreams = new Set([`${project.upstream.host}:${project.upstream.port}`]);
+  const upstreams = new Set([
+    loopbackAddress(project.upstream.host, project.upstream.port),
+  ]);
   for (const endpoint of project.endpoints) {
     if (ids.has(endpoint.id)) {
       throw new UnlocalhostError(`${filename}: duplicate endpoint id "${endpoint.id}"`);
@@ -349,13 +399,33 @@ export function parseProject(source: string, filename = "project"): ProjectConfi
     if (slugs.has(endpoint.slug)) {
       throw new UnlocalhostError(`${filename}: duplicate endpoint slug "${endpoint.slug}"`);
     }
-    const address = `${endpoint.upstream.host}:${endpoint.upstream.port}`;
+    const address = loopbackAddress(endpoint.upstream.host, endpoint.upstream.port);
     if (upstreams.has(address)) {
       throw new UnlocalhostError(`${filename}: duplicate endpoint upstream "${address}"`);
     }
     ids.add(endpoint.id);
     slugs.add(endpoint.slug);
     upstreams.add(address);
+  }
+  const tcpIds = new Set<string>();
+  const composeTargets = new Set<string>();
+  for (const binding of project.tcp_bindings ?? []) {
+    if (tcpIds.has(binding.id)) {
+      throw new UnlocalhostError(`${filename}: duplicate TCP binding id "${binding.id}"`);
+    }
+    const address = loopbackAddress(binding.host, binding.port);
+    if (upstreams.has(address)) {
+      throw new UnlocalhostError(`${filename}: duplicate allocated address "${address}"`);
+    }
+    const composeTarget = `${binding.compose_service}:${binding.container_port}`;
+    if (composeTargets.has(composeTarget)) {
+      throw new UnlocalhostError(
+        `${filename}: duplicate TCP binding target "${composeTarget}"`,
+      );
+    }
+    tcpIds.add(binding.id);
+    upstreams.add(address);
+    composeTargets.add(composeTarget);
   }
   if (typeof value.compose_file === "string" && value.compose_file) {
     project.compose_file = value.compose_file;
@@ -414,6 +484,9 @@ export function serializeProject(project: ProjectConfig): string {
   if (project.run_command) top.run_command = project.run_command;
   top.upstream = project.upstream;
   if (project.endpoints.length > 0) top.endpoints = project.endpoints;
+  if (project.tcp_bindings && project.tcp_bindings.length > 0) {
+    top.tcp_bindings = project.tcp_bindings;
+  }
   return `# Managed by unlocalhost. Safe to edit while unlocalhost is stopped.\n${stringify(top)}`;
 }
 

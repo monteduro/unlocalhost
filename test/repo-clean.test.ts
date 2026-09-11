@@ -8,7 +8,7 @@ import test from "node:test";
 import { promisify } from "node:util";
 import { runCompose } from "../src/compose.js";
 import { initializeHome } from "../src/config.js";
-import { addEndpoint, addProject } from "../src/registry.js";
+import { addEndpoint, addProject, addTcpBinding } from "../src/registry.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -129,6 +129,11 @@ test(
       service: "web",
       containerPort: 80,
     });
+    await addTcpBinding(home, project.id, {
+      id: "database",
+      service: "database",
+      containerPort: 3306,
+    });
     const merged = await execFileAsync(
       "docker",
       [
@@ -157,6 +162,14 @@ test(
         protocol: "tcp",
       },
     ]);
-    assert.equal(config.services.database?.ports, undefined);
+    assert.deepEqual(config.services.database?.ports, [
+      {
+        mode: "ingress",
+        host_ip: "127.0.0.1",
+        target: 3306,
+        published: "19201",
+        protocol: "tcp",
+      },
+    ]);
   },
 );

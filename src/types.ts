@@ -38,6 +38,14 @@ export interface EndpointConfig {
   };
 }
 
+export interface TcpBindingConfig {
+  id: string;
+  compose_service: string;
+  container_port: number;
+  host: "127.0.0.1";
+  port: number;
+}
+
 export interface ProjectConfig {
   id: string;
   name: string;
@@ -56,11 +64,17 @@ export interface ProjectConfig {
   container_port?: number;
   run_command?: string[];
   endpoints: EndpointConfig[];
+  tcp_bindings?: TcpBindingConfig[];
   upstream: {
     mode: "host_port";
     host: string;
     port: number;
   };
+}
+
+export interface TcpBindingStatus extends TcpBindingConfig {
+  reachable: boolean;
+  error: string | null;
 }
 
 export interface EndpointStatus {
@@ -113,4 +127,5 @@ export interface ProjectStatus {
     error: string | null;
   };
   endpoints: EndpointStatus[];
+  tcp_bindings: TcpBindingStatus[];
 }

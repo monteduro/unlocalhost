@@ -1,4 +1,5 @@
 import { endpointRouteExists } from "./caddy.js";
+import net from "node:net";
 import { composeStatus } from "./compose.js";
 import { projectEndpoints, type ResolvedEndpoint } from "./endpoints.js";
 import { errorMessage } from "./errors.js";
@@ -14,6 +15,8 @@ import type {
   GlobalConfig,
   ProjectConfig,
   ProjectStatus,
+  TcpBindingConfig,
+  TcpBindingStatus,
 } from "./types.js";
 import { STATUS_SCHEMA_VERSION } from "./types.js";
 
@@ -55,18 +58,38 @@ async function endpointStatus(
   };
 }
 
+async function tcpBindingStatus(
+  binding: TcpBindingConfig,
+): Promise<TcpBindingStatus> {
+  return await new Promise((resolve) => {
+    const socket = net.createConnection({ host: binding.host, port: binding.port });
+    let settled = false;
+    const finish = (reachable: boolean, error: string | null): void => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve({ ...binding, reachable, error });
+    };
+    socket.setTimeout(1500);
+    socket.once("connect", () => finish(true, null));
+    socket.once("timeout", () => finish(false, "connection timed out"));
+    socket.once("error", (error) => finish(false, errorMessage(error)));
+  });
+}
+
 export async function projectStatus(
   home: string,
   config: GlobalConfig,
   project: ProjectConfig,
 ): Promise<ProjectStatus> {
-  const [compose, endpoints] = await Promise.all([
+  const [compose, endpoints, tcpBindings] = await Promise.all([
     composeStatus(home, project),
     Promise.all(
       projectEndpoints(project).map(
         async (endpoint) => await endpointStatus(home, config, project, endpoint),
       ),
     ),
+    Promise.all((project.tcp_bindings ?? []).map(tcpBindingStatus)),
   ]);
   const primary = endpoints[0]!;
   return {
@@ -84,6 +107,7 @@ export async function projectStatus(
     proxy_route: primary.proxy_route,
     upstream_health: primary.upstream_health,
     endpoints,
+    tcp_bindings: tcpBindings,
   };
 }
 

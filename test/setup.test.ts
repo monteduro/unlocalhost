@@ -9,6 +9,7 @@ import { addEndpoint, addProject } from "../src/registry.js";
 import {
   automaticComposeCandidate,
   composeDevCandidate,
+  databaseComposeCandidates,
   defaultSetupFeatures,
   detectProject,
   hostDevDependenciesAvailable,
@@ -166,6 +167,7 @@ test("setup filters infrastructure ports and chooses the application automatical
   const primary = automaticComposeCandidate(candidates);
   assert.equal(primary?.containerPort, 80);
   assert.equal(composeDevCandidate(candidates, primary!, "vite")?.containerPort, 5174);
+  assert.deepEqual(databaseComposeCandidates(candidates), [candidates[2]]);
 });
 
 test("setup feature parsing supports human aliases but requires a reachable endpoint", () => {

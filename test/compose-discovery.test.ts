@@ -140,6 +140,8 @@ printf '%s\n' "$UNLOCALHOST_TEST_COMPOSE_JSON"
       "demo",
       "--services",
       "frontend,api",
+      "--tcp",
+      "database:5432",
     ],
     {
       cwd: process.cwd(),
@@ -149,6 +151,7 @@ printf '%s\n' "$UNLOCALHOST_TEST_COMPOSE_JSON"
   );
   assert.match(result.stdout, /web: .* → 127\.0\.0\.1:19100 → frontend:3000/);
   assert.match(result.stdout, /api: .* → 127\.0\.0\.1:19101 → api:4000/);
+  assert.match(result.stdout, /tcp\/database: 127\.0\.0\.1:19102 → database:5432/);
 
   const project = await getProject(home, "demo");
   assert.deepEqual(
@@ -170,7 +173,16 @@ printf '%s\n' "$UNLOCALHOST_TEST_COMPOSE_JSON"
   );
   assert.match(override, /ports: !override/);
   assert.match(override, /127\.0\.0\.1:19101:4000/);
-  assert.match(override, /database:\n    ports: !override \[\]/);
+  assert.match(override, /127\.0\.0\.1:19102:5432/);
+  assert.deepEqual(project.tcp_bindings, [
+    {
+      id: "database",
+      compose_service: "database",
+      container_port: 5432,
+      host: "127.0.0.1",
+      port: 19102,
+    },
+  ]);
   assert.deepEqual(project.compose_port_services, [
     "frontend",
     "database",
@@ -191,5 +203,5 @@ printf '%s\n' "$UNLOCALHOST_TEST_COMPOSE_JSON"
       },
     },
   );
-  assert.match(automatic.stdout, /web: .* → 127\.0\.0\.1:19102 → frontend:3000/);
+  assert.match(automatic.stdout, /web: .* → 127\.0\.0\.1:19103 → frontend:3000/);
 });
