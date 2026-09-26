@@ -132,8 +132,22 @@ replacement for Docker Compose. It does not upload your code, rebuild the
 project on a remote server, or flatten a multi-service environment into one
 container.
 
-Public development URLs are internet-reachable. Add Cloudflare Access before
-exposing sensitive applications, and never use production data or secrets.
+## Security of remote URLs
+
+Remote access is optional, but enabling it publishes an internet-reachable
+hostname for each public endpoint. Treat these hostnames as discoverable: a
+public DNS lookup confirms a known or guessed name, and third-party indexes
+may list it. Cloudflare Tunnel hides the origin IP, not the public URL. The
+hostname itself is not access control.
+
+For private development apps, configure Cloudflare Access on the relevant
+hostnames in the Cloudflare dashboard and allow only the intended users.
+unlocalhost does not configure Access or authenticate visitors. Access may
+interrupt API calls from mobile apps, webhooks, or other clients without a
+browser login; use appropriate application authentication for endpoints that
+must serve those clients. Never put an Access service-token secret in public
+frontend code or a mobile app. Do not use production data or secrets in
+internet-reachable development apps.
 
 ## Documentation
 
